@@ -1,0 +1,1311 @@
+#!/usr/bin/perl
+
+#msp430static.pl
+#by Travis Goodspeed <travis@utk.edu>
+
+#This is a static analysis tool for MSP430 executables.
+#It's a rough draft; I intend to rewrite from scratch at a later date.
+
+use strict;
+use warnings;
+
+use DBI;
+use FindBin qw($RealBin);
+#use GD;  #only needed for gdmemmap
+
+
+my %opts;
+
+#database handle
+my $dbh;
+
+
+sub main{
+    initopts();
+    initvars();
+    dbopen();
+    loadmacros();
+    loadsubs();
+    
+    if($opts{"lib"}){
+	readlib();
+    }elsif($opts{"init"} || $opts{"reload"}){
+	resetdb() if $opts{"init"};
+	resetdbreload() if $opts{"reload"};
+	readin();
+	dbinit();
+	analyze();
+    }
+    
+    if($opts{"index"}){
+	dbindex();
+    }
+    
+    
+    #Slowly deprecating in favor of macros.
+    
+    rlshell() if $opts{"dbshell"} || $opts{"shell"};
+    dbshell() if $opts{"sql"};
+    
+    #Macros accepted at end of command-line.
+    my %foo=%opts;
+    foreach(%foo){
+	dbexec($_) if /\A\..*/;
+    }
+    
+    dbclose();
+}
+
+#Loads subs from the database.
+sub loadoldsubs{
+    my $adr=shift();
+    my $sth = $dbh->prepare('SELECT name,args,lang,comment,code FROM subs;')
+	or die "Couldn't prepare statement: " . $dbh->errstr;
+    
+    $sth->execute()             # Execute the query
+	or die "Couldn't execute statement: " . $sth->errstr;
+
+    # Read the matching records and print them out          
+    while (my @data = $sth->fetchrow_array()) {
+	my $name=$data[0];
+	my $args=$data[1];
+	my $lang=$data[2];
+	my $comment=$data[3];
+	my $code=$data[4];
+	
+	regsub($name,$args,$lang,$code);
+    }
+    $sth->finish;
+}
+
+#Loads a function into the database.
+sub loadsub{
+    my $name=shift();
+    my $args=shift();
+    my $lang=shift();
+    my $comment=shift();
+    my $code=shift();
+    
+    my $sth;
+    
+    #Drop the old entry
+    $sth = $dbh->prepare("delete from subs where name=?;");
+    $sth->execute($name);
+    $sth->finish();
+    
+    #Add the new entry.
+    $sth = $dbh->prepare("INSERT INTO subs VALUES (?, ?, ?, ?, ?);");
+    $sth->execute($name, $args, $lang, $comment, $code);
+    $sth->finish();
+    
+    regsub($name,$args,$lang,$code);
+}
+#registers a function in $dbh
+#name, args, lang, code
+sub regsub{
+    my $name=shift();
+    my $args=shift();
+    my $lang=shift();
+    my $code=shift();
+    print "reging\t$name\t\t$code\n" if $opts{"debug"};
+    $dbh->func($name,$args, eval($code), 'create_function' );
+}
+
+#Loads all default functions into the database.
+sub loadsubs{
+    $dbh->do("CREATE TABLE IF NOT EXISTS subs(name,args,lang,comment,code);");
+    loadoldsubs();
+    loadsub('enhex', 1, 'perl',
+	    'Converts a numeral to a hex string.',
+	    'sub { return sprintf("%04x",shift()); }');
+    
+    #Sometimes this is a native function.
+    loadsub('dehex', 1, 'perl',
+	    'Converts a hex string to a numeral.',
+	    'sub { return hex(shift()); }');
+
+    
+    loadsub('fprint', 1, 'perl',
+ 	    'Position-invariant fingerprint of an assembly code string.',
+ 	    'sub { return fprintfunc(shift()); }');
+    loadsub('addr2func', 1, 'perl',
+	    'Returns the starting address of the function containing the given address.',
+	    'sub { return addr2func(shift()); }');
+    loadsub('addr2funcname', 1, 'perl',
+	    'Returns the name of the function containing the given address.',
+	    'sub { return addr2funcname(shift()); }');
+    loadsub('callgraph', 0, 'perl',
+	    'Returns a graphviz callgraph.',
+	    'sub { return callgraph(); }');
+    loadsub('to_ihex', 1, 'perl',
+	    'Returns a line of code as an Intel Hex entry.  [broken]',
+	    'sub { return to_ihex(shift()); }');
+    
+}
+
+sub loadmacro{
+    my $name=shift();
+    my $lang=shift();
+    my $comment=shift();
+    my $code=shift();
+    #$macros{"$name"}=$code;
+    my $sth;
+    
+    #Drop the old entry
+    $sth = $dbh->prepare("delete from macros where name=?;");
+    $sth->execute($name);
+    $sth->finish();
+    
+    #Add the new entry.
+    $sth = $dbh->prepare("INSERT INTO macros VALUES (?, ?, ?, ?);");
+    $sth->execute($name, $lang, $comment, $code);
+    $sth->finish();
+}
+sub loadmacros(){
+    $dbh->do("CREATE TABLE IF NOT EXISTS macros(name,lang,comment,code);");
+    
+    loadmacro(".funcs.overlap","sql",
+	      "List overlapping function addresses.",
+	      "select enhex(a.address),enhex(b.address)
+from funcs a, funcs b where a.address!=b.address
+and a.address<b.end and b.address<a.end;");
+    loadmacro(".symbols.recover","sql",
+	      "Recover symbol names from libraries.",
+	      "update funcs 
+set name=(select name from lib l where l.checksum=funcs.checksum)
+where funcs.checksum in (select checksum from lib);");
+    loadmacro(".callgraph","sql",
+	      "Dump a digraph call tree for graphviz.",
+	      "select callgraph();");
+    loadmacro(".callgraph.gv","system",
+	      "View a callgraph in ghostview.",
+	      "msp430static .callgraph.ps| gv -");
+    loadmacro(".callgraph.kgv","system",
+	      "View a callgraph in kghostview.",
+	      "msp430static .callgraph.ps| kghostview -");
+    loadmacro(".callgraph.xview","system",
+	      "View a callgraph in xview.",
+	      "msp430static .callgraph | dot -Tgif >.temp.gif && xview .temp.gif; rm -f .temp.gif");
+    loadmacro(".callgraph.ps","system",
+	      "Postscript callgraph, sized for US Letter.",
+	      "msp430static .callgraph | dot -Tps -x -Gsize=\"7,10\" -Grankdir=\"LR\"");
+    loadmacro(".callgraph.lp","system",
+	      "Print callgraph for US Letter.",
+	      "msp430static .callgraph.ps | lp");
+    loadmacro(".export.ihex","sql",
+	      "Dumps the project as an Intel Hex file.",
+	      "select to_ihex(asm) from code union all select ':00000001FF';");
+    loadmacro(".export.srec","system",
+	      "Dumps the project as a Motorolla SRec file.",
+	      "msp430static .export.ihex | srec_cat - -Intel");
+    loadmacro(".export.aout","system",
+	      "Dumps the project an a.out executable.",
+	      "msp430static .export.ihex >.temp.ihex; msp430-objcopy -I ihex -O elf32-msp430 .temp.ihex a.out; rm -f .temp.ihex");
+    
+    loadmacro(".macros","sql",
+	      "Lists all available macros.",
+	      "select name,comment from macros order by name asc;");
+    loadmacro(".subs","sql",
+	      "Lists all additional SQL functions.",
+	      "select name,comment from subs order by name asc;");
+    
+    loadmacro(".funcs.inlibs","sql",
+	      "List functions which appear in libraries.",
+	      "select distinct enhex(f.address), l.name from lib l,
+               funcs f where f.checksum=l.checksum;");
+    loadmacro(".funcs.outside","sql",
+	      "List instructions where are not part of any function.",
+	      "select asm from code where addr2func(address)=-1
+               and address<dehex('ffe0');");
+    
+    loadmacro(".code.switches","sql",
+	      "List branches belonging to jump-table switch statements.",
+	      "select asm from code where asm like '%br%(%)%';");
+    
+    loadmacro(".lib.import.gnu","system",
+	      "Import mspgcc libraries from /usr/local/msp430.",
+	      "msp430-objdump -D `find /usr/local/msp430 -name \*.a` | m4s lib");
+    loadmacro(".lib.import.tinyos","system",
+	      "Import mspgcc libraries from /usr/local/msp430.",
+	      "msp430-objdump -D `find /opt/tinyos-2.x/apps -name \*.exe` | m4s lib");
+    
+    loadmacro(".memmap.gd.gif","perl",
+	      "Output a GIF drawing of memory.",
+	      "gdmemmap('gif');");
+    loadmacro(".memmap.gd.jpeg","perl",
+	      "Output a JPEG drawing of memory.",
+	      "gdmemmap('jpeg');");
+    loadmacro(".memmap.gd.png","perl",
+	      "Output a PNG drawing of memory.",
+	      "gdmemmap('png');");
+    loadmacro(".memmap.pstricks","perl",
+	      "Output a LaTeX drawing of memory.",
+	      "pstmemmap('png');");
+    loadmacro(".memmap.gd.xview","system",
+	      "View a callgraph in xview.",
+	      "m4s .memmap.gd.gif >.temp.gif && xview .temp.gif; rm -f .temp.gif");
+    loadmacro(".memmap.gd.eog","system",
+	      "View a callgraph in Eye of Gnome.",
+	      "m4s .memmap.gd.png >/tmp/foo.png && eog /tmp/foo.png");
+    
+    loadmacro(".summary","perl",
+	      "Output a summary of the database contents.",
+	      "printsummary();");
+    
+    loadmacro(".missing","perl",
+	      "Default macro, run whenever a missing macro is called.",
+	      "print 'That macro does not exist.\n';");
+}
+
+
+#TODO: Replace this with Getopt::Long
+sub initopts{
+    for(@ARGV){
+	$opts{$_}=1;
+	if($_ eq "--help" or $_ eq "-h"){
+	    print "Usage: $0 [options]
+\t[options] are:
+noindex     Do not create indices.  (faster write, slower reads)
+
+init        Initialize the database with a source file.
+  <app.s    Application to read.
+reload      Same as above, but doesn't kill history and pins.
+  <app.s
+lib         Accept a library with debugging symbols as input, writing
+            a checksummed account of functions to the database.
+  <libc.s   Assembly file to read.
+index       Create indices on the database.
+shell       Interactive SQL shell.
+sql         Non-interactive SQL shell, for scripting.
+";
+	    exit;
+	}
+    }
+}
+
+
+
+my(@IVT, @sections, @code, @called, @calls, @callfrom);
+#For psmemmap and (possibly) others.  Values are hex.
+#my @memmappix;
+
+
+#connect to the database
+sub dbopen{
+    my $databasefile="";
+    $databasefile="430static.db";# if $opts{"dbwrite"};
+    $dbh = DBI->connect( "dbi:SQLite:$databasefile" ) || die "Cannot connect.";
+    print "Database connected.\n" if $opts{"debug"};
+    
+}
+
+#Returns the starting address of the function containing the given address.
+sub addr2func{
+    my $adr=shift();
+    my $sth = $dbh->prepare('SELECT distinct address FROM funcs where address<=? and end>=?;')
+	or die "Couldn't prepare statement: " . $dbh->errstr;
+    
+    $sth->execute($adr,$adr)             # Execute the query
+	or die "Couldn't execute statement: " . $sth->errstr;
+
+    # Read the matching records and print them out          
+    while (my @data = $sth->fetchrow_array()) {
+	my $address = $data[0];
+	return $address;
+    }
+    
+    if ($sth->rows == 0) {
+	return -1;
+    }
+    
+    $sth->finish;
+}
+
+#Returns the name field of the function containing the given address.
+sub addr2funcname{
+    my $adr=shift();
+    my $sth = $dbh->prepare('SELECT distinct name FROM funcs where address<=? and end>=?;')
+	or die "Couldn't prepare statement: " . $dbh->errstr;
+    
+    $sth->execute($adr,$adr)             # Execute the query
+	or die "Couldn't execute statement: " . $sth->errstr;
+
+    # Read the matching records and print them out          
+    while (my @data = $sth->fetchrow_array()) {
+	my $address = $data[0];
+	return $address;
+    }
+    
+    if ($sth->rows == 0) {
+	return -1;
+    }
+    
+    $sth->finish;
+}
+
+
+sub dbindex{
+    $dbh->do("CREATE INDEX IF NOT EXISTS adcode ON code(address);");
+    $dbh->do("CREATE INDEX IF NOT EXISTS nlib ON lib(name);");
+    $dbh->do("CREATE INDEX IF NOT EXISTS clib ON lib(checksum);");
+    $dbh->do("CREATE INDEX IF NOT EXISTS nfuncs ON funcs(name);");
+    $dbh->do("CREATE INDEX IF NOT EXISTS cfuncs ON funcs(checksum);");
+    
+}
+
+#write to the database
+#see resetdb() for table creations.
+sub dbinit{
+    #require DBI;
+    #DBI->import;
+    
+    my ($i, $res, $tmp);
+    
+    #TODO extend this to parse the script.
+    for($i=0;$i<0x10000;$i++){
+	$tmp=$code[$i];
+	$tmp =~ s/\s+$//;#strip surrounding whitespace.
+	$dbh->do("INSERT INTO code VALUES ($i, '$tmp');") if $code[$i] ne '';
+    }
+    
+    for($i=0;$i<0x10000;$i++){
+	$tmp=hex($IVT[$i]);
+	$dbh->do("INSERT INTO ivt VALUES ($i, '$tmp');") if $IVT[$i] ne '';
+    }
+    
+#This should come from database, not local variable.
+#     my $res=$dbh->selectall_arrayref("SELECT dest FROM fcalls;");
+#     foreach(@$res){
+# 	my $i=-1;
+# 	my $target=$_->[0];
+	
+#     }
+    my @c=@called;
+    for(@c){
+	my $name=$_;
+	$i=hex($_);
+	my $sname=dbscalar("SELECT name from symbols where address=$i");
+	$name=$sname if $sname;
+	
+	printf "#Identified function: $name at 0x%X\n",$i  if $opts{"debug"};
+	
+	my $r= getroutine(hex($_));
+	my $fingerprint=fprintfunc($r);
+	my $fnend=fnend($r);
+	#print "$fnend\n";
+	$dbh->do("INSERT INTO funcs VALUES ($i,$fnend,'$r','$name','$fingerprint');");
+	#print $r if $opts{"code"};
+    }
+    
+    
+    $dbh->do("CREATE INDEX IF NOT EXISTS adfuncs ON funcs(address,end);")
+	if !$opts{"noindex"};
+    
+    
+    
+    #$res = $dbh->selectall_arrayref( q( SELECT a.lastname, a.firstname, b.title
+    #FROM books b, authors a
+    #WHERE b.title like '%Orient%'
+    #AND a.lastname = b.author ) );
+    #
+    #foreach( @$res ) {
+    #print "$_->[0], $_->[1]:\t$_->[2]\n";
+    #}
+}
+
+# #code
+# sub printdbcode(){
+#     my $res=$dbh->selectall_arrayref(q(SELECT address,end,asm,
+# (select name from lib as l where l.checksum=f.checksum)
+# 				     FROM funcs f));
+#     foreach(@$res){
+# 	my($address,$end,$asm,$vname);
+# 	$address=$_->[0];
+# 	$end=$_->[1];
+# 	$asm=$_->[2];
+#         $vname=$_->[3];
+# 	printf("$vname:\n",$address) if $vname;
+#         printf("%04x: \n",$address) if !$vname;
+# 	my $fprint=fprintfunc($asm);
+        
+#         #Print a warning here.
+#         printf("%s\n",getfnname($address));
+# 	printf("$asm");
+#     }
+# }
+
+#summarize the contents of the database
+sub printsummary{
+    my $code=dbscalar("SELECT count(*) FROM code;");
+    my $funcs=dbscalar("SELECT count(*) FROM funcs;");
+    my $lib=dbscalar("SELECT count(*) FROM lib;");
+    my $libfuncs=dbscalar("SELECT count(distinct l.checksum) FROM lib l, funcs f
+                           WHERE l.checksum=f.checksum;");
+    my $pokes=dbscalar("SELECT count(distinct address) FROM pokes;");
+    my $fbegin=dbscalar("SELECT enhex(min(address)) from code;");
+    my $fend=dbscalar("SELECT enhex(max(address)) from code where address<dehex('0xFF00');");
+    printf "$RealBin/msp430static.pl\n";
+    printf "$code instructions
+$funcs functions from $fbegin to $fend
+$libfuncs of $lib library functions found
+$pokes distinct memory locations are poked.
+\n";
+    
+    my $res = $dbh->selectall_arrayref( q( SELECT  count(*) FROM lib;));
+    foreach( @$res ) {
+	print "$_->[0] lib functions.\n";
+    }
+    
+    $res = $dbh->selectall_arrayref( q( SELECT  count(distinct name) FROM lib;));
+    foreach( @$res ) {
+	print "$_->[0] unique lib function names.\n";
+    }
+    
+    $res = $dbh->selectall_arrayref( q( SELECT  count(distinct checksum) FROM lib;));
+    foreach( @$res ) {
+	print "$_->[0] unique lib function checksums.\n";
+    }
+}
+
+
+#Get a human-readable name of a function
+#by the integer of its starting address.
+sub getfnname{
+    my $fn=int(shift);
+    my $name=dbscalar("select l.name from lib l,funcs f
+where l.checksum=f.checksum and f.address=$fn");
+    return $name if $name;
+    return sprintf("%04x",$fn);
+}
+#Gets a scalar from the database.
+sub dbscalar{
+    my $query=shift;
+    printf "$query\n" if $opts{'debug'};
+    #First, name our vertices.
+    my $res=$dbh->selectall_arrayref($query);
+    #if(!$res){return '';}
+    foreach(@$res){
+	return $_->[0];
+    }
+}
+
+
+#Database shell.  Useful for additional instructions.
+sub dbshell{
+    my $query=shift;
+    #First, name our vertices.
+    my $res;
+    printf("Starting shell.\n") if $opts{"debug"};
+    
+    #printf "m4s>";
+    while(<STDIN>){
+ 	$res=$dbh->selectall_arrayref($_);
+ 	foreach(@$res){
+ 	    my $i=-1;
+ 	    while($_->[++$i]){
+ 		printf "%s\t",$_->[$i];
+ 	    }
+ 	    printf "\n";
+ 	}
+ 	#printf "m4s>";
+    }
+    printf("Stopping shell.\n") if $opts{"debug"};
+}
+
+
+#Database shell.  Useful for additional instructions.
+sub rlshell{
+    require Term::ReadLine;
+    Term::ReadLine->import;
+    
+    my $term = new Term::ReadLine 'msp430static';
+    my $prompt = "m4s sql> ";
+    my $OUT = $term->OUT || \*STDOUT;
+        
+    #Load history from database.
+    my $res=$dbh->selectall_arrayref("select cmd from history where id>(select max(id)-100 from history) order by id asc;");
+    foreach(@$res){
+	$term->addhistory($_->[0]) if /\S/;
+    }
+    
+
+    while ( defined ($_ = $term->readline($prompt)) ) {
+	#Update the history.
+	my $cmd=$_;
+	
+	#Add to history
+	my $sth = $dbh->prepare("INSERT INTO history VALUES (NULL, ?);");
+	$sth->execute($cmd);
+	$sth->finish();
+	
+	#Then exec.
+	dbexec($cmd);
+	
+	
+    }
+    
+}
+
+#Execute a macro, in any language, from the macros table.
+sub macroexec{
+    my $cmd=shift;
+    my $sth = $dbh->prepare("SELECT name,lang,comment,code FROM
+macros WHERE name=?");
+    $sth->execute($cmd);
+    my $d = $sth->fetchrow_arrayref;
+    
+    #TODO check for non-existent macro
+    return macroexec(".missing") if(!$d) ;
+    
+    #Do the actual execution.
+    dbexec($d->[3]) if $d->[1] eq 'sql';
+    eval($d->[3]) if $d->[1] eq 'perl';
+    system($d->[3]) if $d->[1] eq 'system';
+    
+    #Clean up.
+    $sth->finish();
+}
+
+#Executes an instruction or macro.
+sub dbexec{
+    my $cmd=shift;
+    #if($macros{$cmd}){
+    #dbexec($macros{$cmd});
+    #return;
+    #}
+    if($cmd=~/\A\..*/){
+	macroexec($cmd);
+	return;
+    }
+    
+    my $res=$dbh->selectall_arrayref($cmd);
+    foreach(@$res){
+	my $i=-1;
+	while($_->[++$i]){
+	    printf "%s",$_->[$i];
+	    printf "\t" if($_->[$i+1]);#print tab if not last
+	}
+	printf "\n";
+    }
+    #$term->addhistory($_) if /\S/;
+	
+}
+
+#Fingerprint a series of assembly instructions.
+sub fprintfunc{
+    my $fprint="";
+    $_=shift;
+    for(split(/\n/)){
+	#print "FOO $_\n" if $opts{"debug"};
+	#if ($_ =~ /\s(.*):\s(.. .. .. ..)\s\t([^ \t]{2,5})\s([^;]*)\s;*\s?(.*)/){
+	if ($_ =~ /\s(.*):\s(.. .. .. ..)/){
+	    $fprint.="$2";
+	}elsif ($_ =~ /\s(.*):\s(.. ..)/){
+	    $fprint.="$2";
+	}else{
+	    print "ERROR: Unparsable instruction: $_\n" if $opts{"debug"};
+	}
+    }
+    $fprint=~s/ //g;
+    printf "FINGERPRINTED AS $fprint\n" if $opts{"debug"};
+    return $fprint;
+}
+
+#Print a line as an ihex record.
+#http://pages.interlog.com/~speff/usefulinfo/Hexfrmt.pdf 
+sub to_ihex{
+    my $code=shift(); #one line for now.
+    my ($ihex,$reclen,$offset,$type,$data,$chksum);
+    
+    $type=0; #always a data record.
+    
+    #I'm ashamed of this line, but it fixes the regex below
+    #when the entry is very short, as in non-code entries.
+    $code.="               ";
+    
+    if ($code =~ / *\s(.*):\s(.. .. .. ..)/){
+	$offset=hex($1); #Offset is the address.
+	
+	$data=$2;
+	$data=~s/ //g;
+	
+	print "data=$data\n" if $opts{"debug"};
+	
+	$reclen=length($data)/2;
+    }else{
+	return "ERROR ON $code";
+    }
+    #$ihex=":$reclen$offset$type$data$chksum";
+    $data =~ tr/a-f/A-F/;
+    $reclen=length($data)/2;			  
+    $ihex= sprintf("%02X%04X%02X%s",
+		   $reclen,
+		   $offset,
+		   $type,
+		   $data);
+    #Calculate checksum, which when byte-summed with $ihex ought to equal 0.
+    my $sum=0;
+    #$ihex="12345";
+    for(my $i=0;$i<length($ihex);$i+=2){
+	my $byte=substr($ihex,$i,2);
+	#print "$i $byte\n" if $opts{"debug"];
+	$sum+=hex($byte);
+    }
+    #Wikipedia:
+    #It is calculated by adding together the hex-encoded bytes
+    #(hex digit pairs), taking only the LSB, and either subtracting
+    #the byte from 0x100 or inverting the byte (XORing 0xFF) and adding one (1).
+    $chksum=$sum ^ 0xFF; #bitwise xor
+    $chksum++;
+    $chksum%=0x100;
+    printf("ERROR: Checksum doesn't match.\n")
+	if(($sum+$chksum)%0x100!=0);
+    printf("Checksum is %02X\n",$chksum) if $opts{"debug"};
+    
+    return sprintf(":%s%02X",$ihex,$chksum);
+}
+
+sub dbclose{
+    $dbh->disconnect;
+    #print "Database disconnected.\n" if $opts{"debug"};    
+}
+
+my $i;
+
+#Initialize variables
+sub initvars{    
+#$calls[src]=dest
+#$callfrom[dest]="src1 src2 src3"
+#%called={fn1, fn2, fn3, fn4}
+
+    for($i=0;$i<0x10000;$i++){
+	$IVT[$i]='';
+	$code[$i]='';
+	$calls[$i]=0;
+	$callfrom[$i]='';
+	#$memmappix[$i]=sprintf("%02x",0xF0) if $opts{"psmemmap"};
+	#$memmappix[$i]='aaaaff' if $opts{"psmemmap"} and $opts{"color"};
+	#print sprintf("%s\n",$code[$i]);
+    }
+}
+
+#foo: source address.
+#bar: Target address.
+sub incall{
+    my $foo=shift;
+    my $bar=shift;
+    $bar =~ s/[\#\s\t]//g;
+    $foo=~ s/0x//;
+    $bar=~ s/0x//;
+    
+    printf "#Call to '%x' from '%x'\n",hex($bar),hex($foo)  if $opts{"debug"};
+    if(!($bar=~/\(/) && $callfrom[hex($bar)] eq ''){
+	push(@called,$bar);
+	printf "#enlisted $bar\n" if $opts{"debug"};
+	$calls[hex($foo)]=hex($bar);
+	$callfrom[hex($bar)].="$foo ";
+    }
+}
+
+
+#Convert an address in memory to coordinates on a memmap.
+sub addr2memcart{
+    my $addr=shift;
+    #X is the lower byte, Y is the higher byte.
+    #The result is a 256x256 grid for all of MSP430 memory.
+    my $x=$addr%256;
+    my $y=int($addr/256);
+    return "($x , $y)";
+}
+sub addrx{
+    return shift()%256;
+}
+sub addry{
+    return int(shift()/256);
+}
+
+
+sub insym{
+    my $adr=shift();
+    my $name=shift();
+    #insert into symbols(address,name);
+    my $sth = $dbh->prepare("insert into symbols values (?,?);");
+    $sth->execute($adr,$name);
+    $sth->finish();
+}
+
+#Add an entry to IVT.
+sub inivt{
+    #print "Marking IVT Table Entry:\n";
+    #print "$1, Routine at $3\n" if $1 ne "";
+    $IVT[hex($1)]=$3;
+    $code[hex($1)]=$_;
+    #print $IVT[$1]."\n";
+    incall($1,$3);
+    
+    #$memmappix[hex($1)]=sprintf("%02x",0x00) if $opts{"psmemmap"} && !$opts{"color"};
+    #$memmappix[hex($1)]=sprintf("%06x",0xFF) if $opts{"psmemmap"} && $opts{"color"};
+
+}
+
+#Read an invalid instruction into the code table, for use as data.
+sub indat{
+    my $at=hex($1);
+    $code[$at]=$_;
+}
+
+#Read in an instruction.
+sub inins{
+    #print "Marking function:\n";
+    #1: address
+    #2: Up to four bytes in little-endian, like "30 41" for 0x4130.
+    #3: Instruction, like "jmp" or "mov.b"
+    #4: All params, unparsed.
+    #5: comments, everything after ';'.
+    #print "$1|$2|$3|$4|$5\n" if $1 ne "";
+    my $at=hex($1);
+    $code[hex($1)]=$_;
+    incall($1,$5) if $3 eq "call";
+    incall($1,$4) if $3 eq "br";
+    #$memmappix[hex($1)]=sprintf("%02x",0x00) if $opts{"psmemmap"} && !$opts{"color"};
+    #$memmappix[hex($1)]=sprintf("%06x",0xFF) if $opts{"psmemmap"} && $opts{"color"};
+    
+    #look for pokes
+    my $poke=$4;
+    if($poke=~/&0x(....)/){
+	$poke=hex($1);
+	#printf "Poke to $poke\n";
+	$dbh->do("INSERT INTO pokes VALUES ($poke,$at);");
+    }
+}
+
+
+# #Print a postscript image of the memory map.
+# sub printpsmemmap{
+#     print "%!PS-Adobe-3.0 EPSF-3.0\n";
+#     print "%%Creator: msp430static by Travis Goodspeed\n";
+#     print "%%BoundingBox: 0 0 256 255\n";
+#     print "%%LanguageLevel: 2\n";
+#     print "%%Pages: 1\n";
+#     print "%%DocumentData: Clean7Bit\n";
+
+    
+#     #print "100 200 translate\n";
+#     #print "1 1 scale\n";
+    
+#     #Flips vertically, for regular bitmap orientation with top-left first.
+#     #print "256 256 8 [26 0 0 -34 0 34]\n";
+    
+#     #Stretches the graph.  Breaks \includegraphics.
+#     #print "256 256 8 [0.71 0 0 0.59 0 1]\n";
+#     #Normalize to 256 by 256 square.
+#     print "256 256 8 [1 0 0 1 0 1]\n";
+    
+#     #print "256 256 8 [32 0 0 38 0 38]\n"; #color
+
+    
+#     print "{<\n";
+#     for($i=0;$i<0xFFFF;$i++){
+# 	printf $memmappix[$i] if !$opts{"black"};
+# 	printf("%02x",0x00) if $opts{"black"};
+# 	printf "\n" if $i%0x100==0xFF;
+# 	#printf "\n" if $i%0x10==0xF;
+#     }
+#     print "\n";
+#     print ">}\n";
+#     print "image\n" if !$opts{"color"};
+#     print "false 3 colorimage\n" if $opts{"color"};
+    
+#     #print "showpage\n";
+#     print "\n%%EOF\n";
+# }
+
+#Given an address within a routine, this prints the whole routine.
+#It works by backing up to the preceding 'ret' or call target,
+#then copying until the final 'ret'.
+sub getroutine{
+    my $addr=(shift)-2;
+    my $cmd='';
+    my $res='';
+    
+    #This is the local jump limit.
+    #The function cannot end before this address.
+    my $rjmplimit=0;
+    
+    #back up to one more than previous ret or call target.
+    #This might give us trouble.
+    
+    #prints everything until the first 'ret'.
+    while(
+	#Local limits.
+	(
+	 (!($cmd =~/ret/) && !($cmd=~/br/))
+	 ||
+	 ($addr<$rjmplimit)
+	)
+	
+	#Global limits.  Something is wrong if these become relevant.
+	&& $addr<0xffde && $addr>0 && $addr<0xFFFF
+	){
+	
+	$cmd=$code[$addr+=2];
+	$res.=$cmd;
+	
+	#Update $rjmplimit if we are at a relative jump.
+	if($cmd=~/abs 0x(....)/){
+	    #printf "rjmplimit=0x$1\n";
+	    $rjmplimit=hex($1)
+		if(hex($1)>$rjmplimit);
+	}
+    }
+    return $res;
+}
+
+
+my @colors=("red","green","blue");
+my $colori=0;
+#Analyze an individual function.
+#analyze($addr,$body)
+sub fnanalyze{
+    my $at=shift;
+    my $r=shift;
+    my ($color,$cart);
+#     if($opts{"psmemmap"}){
+# 	$color=sprintf("%02x",$colori++%0x30+0xA0);
+# 	$_=$r;
+        
+# 	for(split(/\n/)){
+# 	    if($_=~/(....):/){
+# 		if(!$opts{"color"}){
+# 		    $memmappix[hex($1)]=$color;
+# 		    $memmappix[(hex($1)+1)%0x10000]=$color;
+# 		}else{
+# 		    #TODO
+# 		}
+# 	    }
+# 	}
+#     }
+#     if($opts{"memmap"}){
+# 	$color=$colors[$colori++%3];
+# 	my $start="\\listplot[showpoints=false,plotstyle=dots,linecolor=$color]\n{\n";
+# 	printf "%% memmap of function at 0x%X\n",$at ;
+# 	#printf $start;
+# 	$_=$r;
+        
+# 	printf "\\psset{linecolor=$color}\n";
+# 	printf "\\psset{dotscale=3.0 0.2}\n";
+# 	for(split(/\n/)){
+# 	    if($_=~/(....):/){
+# 		$cart=addr2memcart(hex($1));
+# 		#printf "}\n$start" if($_=~/(..00):/)
+		
+# 		printf("\\psdot$cart \t%% $1\n");
+# 	    }
+# 	}
+#     }
+}
+
+#Determine ending address of a function, given the assembly.
+sub fnend{
+    my $fn=shift;
+    my $lline='';
+    my $ladr=0;
+    $_=$fn;
+    for(split(/\n/)){
+	#$lline=$_;
+	#printf "Trying $_\n";
+	if(/(....):/){
+	    $ladr=hex($1);
+	    #printf "It might end at $ladr\n";
+	}
+    }
+    
+    return $ladr;
+}
+
+#Identify function calls.
+sub netanalyze{
+    my $at=shift;
+    my $r=shift;
+    
+    $_=$r;
+    for(split(/\n/)){
+	if($_=~/call.*0x(....)/){
+	    my $toward=$1;
+	    if($opts{"debug"} or $opts{"code"}){
+		print "#calls $toward\n";
+	    }
+	    my $to=hex($toward);
+	    $dbh->do("INSERT INTO calls VALUES ($at,$to)");
+	}
+    }
+}
+
+#Read a library, marking symbol names and checksums.
+#This lets us identify function in executables without symbol names.
+sub readlib(){
+    my $working=1;
+    my $fprint="";
+    my $fname="";
+    my $nextfn="";
+    my $asm="";
+#read each line and load it.
+    
+    while(<STDIN>){
+	
+	if($_=~/(stab)/ && $working){
+	    $working=0;
+	    print "#Stopping work until out of stab section.\n" if $opts{"debug"};
+	}elsif(!$working){
+	    print "#Ignoring\n#$_" if $opts{"debug"} && $opts{"verbose"};
+	    if($_=~/(section)/){
+		$working=1;
+		print "#Resuming work, as out of stab section.\n" if $opts{"debug"};
+	    }
+	}
+	    
+	#Instructions
+	#    11b6:       6f 4e           mov.b   @r14,   r15     ;
+	#    11b8:       cd 4f 00 00     mov.b   r15,    0(r13)  ;
+	#    1111:       22222222222     33333   44444444444444  555555
+	#    f896:	     30 40 a2 f8 	br	#0xf8a2		;
+	elsif ($_ =~ /\s(.*):\s(.. .. .. ..)\s\t([^ \t]{2,5})\s([^;]*)\s;*\s?(.*)/){
+	    #inins();
+	    #printf "GOT $_\n";
+	    $fprint.=$2;
+	    $asm.=$_;
+	    #FIXME: There's no need to checksum here.
+	    #Perhaps run:
+	    #update lib set checksum=fprint(asm);
+	    
+	#}elsif ($_ =~ /00000000 <(.*)>/){
+	}elsif ($_ =~ /........ <(.*)>/){
+	    $nextfn=$1;
+	    $fprint=~s/ //g;
+	    printf "#fingerprinted $fname\n";
+	    $dbh->do("INSERT INTO lib(name,checksum,asm) VALUES ('$fname','$fprint', '$asm');");
+	    #printf "New function $nextfn\n";
+	    $fname="$nextfn";
+	    $fprint="";
+	    $asm="";
+	}elsif ($_ =~/(....):  (.. ..)/){
+	    $asm.=$_;
+	    $fprint.=$2; #perhaps innapropriate?
+	#For debugging, should only be non-executable parts and section headers
+	}else{
+	    print "WTF: $_" if $opts{"wtf"};
+	}
+	print "$_" if $opts{"printall"};
+    }
+    
+    $dbh->do("DELETE FROM lib WHERE checksum='';");
+    my $res = $dbh->selectall_arrayref( q( SELECT  count(*) FROM lib;));
+    foreach( @$res ) {
+	print "#$_->[0] lib functions.\n";
+    }
+    
+    $res = $dbh->selectall_arrayref( q( SELECT  count(distinct name) FROM lib;));
+    foreach( @$res ) {
+	print "#$_->[0] unique lib function names.\n";
+    }
+    
+    $res = $dbh->selectall_arrayref( q( SELECT  count(distinct name) FROM lib;));
+    foreach( @$res ) {
+	print "#$_->[0] unique lib function checksums.\n";
+    }
+}
+
+
+
+#Resets part of the database to reload a new binary without clobbering lib.
+sub resetdbreload(){
+
+    $dbh->do("DROP TABLE IF EXISTS pokes;");
+    $dbh->do("CREATE TABLE pokes(address int,at int);");
+    
+    $dbh->do("DROP TABLE IF EXISTS ivt;");
+    $dbh->do("CREATE TABLE ivt (address int, dest int);");
+    
+    $dbh->do( "DROP TABLE IF EXISTS code;");
+    $dbh->do( "CREATE TABLE code (address int, asm);");
+    
+    $dbh->do( "DROP TABLE IF EXISTS symbols;");
+    $dbh->do( "CREATE TABLE symbols (address int, name);");
+    
+    $dbh->do("DROP TABLE IF EXISTS funcs;");
+    $dbh->do("CREATE TABLE funcs(address int,end int, asm, name, checksum);");
+    
+    $dbh->do("DROP TABLE IF EXISTS calls;");
+    $dbh->do("CREATE TABLE calls(src int, dest int);");
+    
+    $dbh->do("DROP VIEW IF EXISTS fcalled;");
+    $dbh->do("CREATE VIEW fcalled as
+              SELECT dest FROM calls UNION SELECT dest FROM ivt;");
+}
+
+#Resets the database by destroying and recreating tables.
+sub resetdb(){
+    resetdbreload();
+    print "Resetting database\n" if $opts{"debug"};
+    $dbh->do("DROP TABLE IF EXISTS lib;");
+    $dbh->do("CREATE TABLE lib(name,comment,source,checksum,asm);");
+    
+    
+    $dbh->do("DROP TABLE IF EXISTS history;");
+    $dbh->do("CREATE TABLE history(id INTEGER PRIMARY KEY, cmd);");
+    
+    
+}
+
+sub readin(){
+    my $working=1;
+    
+    
+
+    #Delete analysis.
+    $dbh->do("DELETE FROM code;");
+    $dbh->do("DELETE FROM funcs;");
+    $dbh->do("DELETE FROM calls;");
+    $dbh->do("DELETE FROM ivt;");
+    $dbh->do("DELETE FROM pokes;");
+    
+    #read each line and load it.
+    while(<STDIN>){
+	
+	
+	if($_=~/(stab)/ && $working){
+	    $working=0;
+	    print "#Stopping work until out of stab section.\n" if $opts{"debug"};
+	}elsif(!$working){
+	    print "#Ignoring\n#$_" if $opts{"debug"} && $opts{"verbose"};
+	    if($_=~/(section)/){
+		$working=1;
+		print "#Resuming work, as out of stab section.\n" if $opts{"debug"};
+	    }
+	    
+	    #IVT Entries
+	    #    fffe:       00 11           interrupt service routine at 0x1100
+	    #~ /[\s\t]*(....):[\s\t]*(.. ..)[\s\t]*interrupt service routine at 0x(....)/;
+	}elsif($_ =~ /[\s\t]*(....):[\s\t]*(.. ..)[\s\t]*interrupt service routine at 0x(....)/){
+	    inivt() ;
+	}
+	
+	#Instructions
+	#    11b6:       6f 4e           mov.b   @r14,   r15     ;
+	#    11b8:       cd 4f 00 00     mov.b   r15,    0(r13)  ;
+	#    1111:       22222222222     33333   44444444444444  555555
+	#    f896:	     30 40 a2 f8 	br	#0xf8a2		;
+	elsif ($_ =~ /\s(....):\s(.. .. .. ..)\s\t([^ \t]{2,5})\s([^;]*)\s;*\s?(.*)/){
+	    inins();
+	}
+	
+	elsif ($_ =~ /(.*) <(.*)>/){
+	    #printf "%08x: %s\n",hex($1),$2;
+	    insym(hex($1),$2);
+	    
+	}elsif ($_ =~/\s(....):\s(.. ..)\s/){
+	    #$asm.=$_;
+	    #$fprint.=$2; #perhaps innapropriate?
+	    indat();
+	#For debugging, should only be non-executable parts and section headers
+	}else{
+	    print "WTF: $_" if($opts{"wtf"});
+	}
+	print "$_" if $opts{"printall"};
+    }
+}
+
+sub analyze{
+    my @c=@called;
+    for(@c){
+	#printf "#Identified function: at 0x%X\n",hex($_);
+	my $r= getroutine(hex($_));
+	fnanalyze(hex($_),$r);
+	print $r if $opts{"code"};
+    }
+    @c=@called;
+    for(@c){
+	printf "#Identified function: at 0x%X\n",hex($_)  if $opts{"code"};
+	my $r= getroutine(hex($_));
+	netanalyze(hex($_),$r);
+	print $r if $opts{"code"};
+    }
+}
+
+
+#Print a memory map for LaTeX/PSTricks.
+#This works, but will crash LaTeX for larger projects.
+sub pstmemmap{
+    printf "\\psset{dotscale=3.0 0.2}\n";
+    
+    printf "\\psset{linecolor=red}\n";
+    printf "%% Begin code.\n";
+    #Draw code in red.
+    my $res=$dbh->selectall_arrayref(q(SELECT address FROM code));
+    foreach(@$res){
+	my $cart=addr2memcart($_->[0]);
+	printf("\\psdot$cart \t%% %04x\n",$_->[0]);
+    }
+    
+    printf "\\psset{linecolor=blue}\n";
+    printf "%% Begin globals.\n";
+    #Draw global addresses in blue.
+    $res=$dbh->selectall_arrayref(q(SELECT distinct address FROM pokes));
+    foreach(@$res){
+	my $cart=addr2memcart($_->[0]);
+	printf("\\psdot$cart \t%% %04x\n",$_->[0]);
+    }
+    
+    printf "\\psset{linecolor=cyan}\n";
+    printf "%% Begin IVT.\n";
+    #Draw IVT in green.
+    $res=$dbh->selectall_arrayref(q(SELECT distinct address FROM ivt));
+    foreach(@$res){
+	my $cart=addr2memcart($_->[0]);
+	printf("\\psdot$cart \t%% %04x\n",$_->[0]);
+    }
+
+}
+
+#perl -MCPAN -e shell
+#install GD
+#sudo g-cpan -i GD
+
+sub printcallgraph{
+    print callgraph();
+}
+sub callgraph{
+    
+    my $graph;
+    $graph= "digraph g {\n";
+    #$graph.="graph [rankdir = \"LR\"];\n";
+    #$graph.="graph [width=6  height=10 fixedsize=true];\n";
+    #$graph.="graph [pagewidth=6 pageheight=10];\n";
+#    First, name our vertices.
+#     my $res=$dbh->selectall_arrayref(
+# 	q(select address,name,
+#  (select name from lib as l where l.checksum=f.checksum)
+#           from funcs as f;));
+    my $res=$dbh->selectall_arrayref(
+	q(select address,name,enhex(address)
+          from funcs as f;));
+    foreach(@$res){
+	my($address,$name,$haddr);
+	$address=$_->[0];
+	$name=$_->[1];
+	$haddr=$_->[2];
+	$graph.="$address [label=\"$haddr\\n$name\" shape=\"record\"]\n";
+    }
+    
+    #Next, draw some edges!
+    $res=$dbh->selectall_arrayref(
+	q(select src,dest from calls;));
+    foreach(@$res){
+	my($src,$dest);
+	$src=$_->[0];
+	$dest=$_->[1];
+	$graph.="$src -> $dest;\n";
+    }
+
+    
+    #Next, draw some IVT edges!
+    $res=$dbh->selectall_arrayref(
+	q(select 'IVT',dest from ivt;));
+    foreach(@$res){
+	my($src,$dest);
+	$src=$_->[0];
+	$dest=$_->[1];
+	$graph.="$src -> $dest;\n";
+    }
+    
+    $graph.= "}\n";
+    return $graph;
+    
+}
+
+#Print a memory map using GD.
+sub gdmemmap{
+    require GD;
+    GD->import;
+    
+    my $type=shift();
+    
+    #Create an image
+    my $im = new GD::Image(256,256);
+    
+    # Allocate some colors
+    my $white = $im->colorAllocate(255,255,255);
+    my $black = $im->colorAllocate(0,0,0);
+    my $red = $im->colorAllocate(255,0,0);
+    my $blue = $im->colorAllocate(0,0,255);
+    my $green = $im->colorAllocate(0,255,0);
+    
+    # Make the background transparent and interlaced
+    #$im->transparent($white);
+    #$im->interlaced('true');
+    
+    # Draw memory divisions.
+    #$im->rectangle(0,256-0,256,256-200,$black);
+    # And fill it with red
+    #$im->fill(1,256-1,$red);
+    
+    #Draw code in red.
+    my $res=$dbh->selectall_arrayref(q(SELECT address FROM code));
+    foreach(@$res){
+	my($address,$x,$y);
+	$address=$_->[0];
+	$x=addrx($address);
+	$y=addry($address);
+	$y=256-$y; #flip vertically.
+	$im->setPixel($x,$y,$red);
+	$im->setPixel($x+1,$y,$red);
+	$im->setPixel($x+2,$y,$red);
+	$im->setPixel($x+3,$y,$red);
+    }
+    
+    #Draw global addresses in blue.
+    $res=$dbh->selectall_arrayref(q(SELECT distinct address FROM pokes));
+    foreach(@$res){
+	my($address,$x,$y);
+	$address=$_->[0];
+	$x=addrx($address);
+	$y=addry($address);
+	$y=256-$y; #flip vertically.
+	$im->setPixel($x,$y,$blue);
+	$im->setPixel($x+1,$y,$blue);
+	$im->setPixel($x+2,$y,$blue);
+	$im->setPixel($x+3,$y,$blue);
+    }
+    
+    #Draw IVT in green.
+    $res=$dbh->selectall_arrayref(q(SELECT distinct address FROM ivt));
+    foreach(@$res){
+	my($address,$x,$y);
+	$address=$_->[0];
+	$x=addrx($address);
+	$y=addry($address);
+	$y=256-$y; #flip vertically.
+	$im->setPixel($x,$y,$green);
+	$im->setPixel($x+1,$y,$green);
+	$im->setPixel($x+2,$y,$green);
+	$im->setPixel($x+3,$y,$green);
+    }
+
+    # Open a file for writing 
+    #open(PICTURE, ">picture.gif") or die("Cannot open file for writing");
+
+    # Make sure we are writing to a binary stream
+    binmode STDOUT; #PICTURE;
+
+    # Convert the image to PNG and print it to the file PICTURE
+    print STDOUT $im->gif if $type eq "gif";
+    print STDOUT $im->jpeg if $type eq "jpeg";
+    print STDOUT $im->png if $type eq "png";
+    close STDOUT;
+}
+
+
+
+
+main();
+
