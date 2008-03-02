@@ -532,10 +532,20 @@ sub rlshell{
 	$term->addhistory($_->[0]) if /\S/;
     }
     
-
-    while ( defined ($_ = $term->readline($prompt)) ) {
+    my $cmd='select 1';
+    while ( defined ($cmd=$term->readline($prompt)) ) {
 	#Update the history.
-	my $cmd=$_;
+	while ($cmd =~ /\\\s*$/) {
+	    #print "foo\n";
+	    $cmd=~ s/\\\s*$//;
+	    printf "$cmd...\n";
+	    my $more = $term->readline($prompt);
+	    if (defined $more) {
+		$cmd .= $more;
+	    } else {
+		last;
+	    }
+	}
 	
 	#Add to history
 	my $sth = $dbh->prepare("INSERT INTO history VALUES (NULL, ?);");
@@ -544,8 +554,6 @@ sub rlshell{
 	
 	#Then exec.
 	dbexec($cmd);
-	
-	
     }
     
 }
