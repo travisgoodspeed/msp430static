@@ -535,6 +535,9 @@ sub rlshell{
     my $cmd='select 1';
     while ( defined ($cmd=$term->readline($prompt)) ) {
 	#Update the history.
+	
+	#Thanks to Jonathan Sailor for this bit,
+	#which allows a line to continue if ended in a \.
 	while ($cmd =~ /\\\s*$/) {
 	    #print "foo\n";
 	    $cmd=~ s/\\\s*$//;
