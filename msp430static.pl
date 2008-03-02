@@ -726,6 +726,22 @@ sub incall{
     $foo=~ s/0x//;
     $bar=~ s/0x//;
     
+    
+    
+    
+    #The call might be non-absolute, like the following:
+    #    6ad2:	10 4e d6 6a 	br	27350(r14)		;
+    #No point in indexing it, as the target addresses
+    #reside at 27350.
+    return if($bar=~/r/);
+    
+    #This is more managable, but not still difficult.  Lines
+    #like the one below call a jump table, but a jump table that
+    #often does not exist on first boot.
+    #    fb78:	10 42 e0 f7 	br	&0xf7e0		;
+    #There's nothing at F7E0 in this image.
+    return if($bar=~/&/);
+    
     printf "#Call to '%x' from '%x'\n",hex($bar),hex($foo)  if $opts{"debug"};
     if(!($bar=~/\(/) && $callfrom[hex($bar)] eq ''){
 	push(@called,$bar);
