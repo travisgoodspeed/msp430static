@@ -213,6 +213,10 @@ where funcs.checksum in (select checksum from lib);");
 	      "List functions which appear in libraries.",
 	      "select distinct enhex(f.address), l.name from lib l,
                funcs f where f.checksum=l.checksum;");
+    loadmacro(".funcs.notinlibs","sql",
+	      "List functiosn which do not appear in libraries.",
+	      "select distinct enhex(f.address),f.name from funcs f where
+               f.checksum not in (select checksum from lib);");
     loadmacro(".funcs.outside","sql",
 	      "List instructions where are not part of any function.",
 	      "select asm from code where addr2func(address)=-1
