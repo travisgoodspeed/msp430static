@@ -174,8 +174,22 @@ sub loadmacro{
     $sth->execute($name, $lang, $comment, $code);
     $sth->finish();
 }
+
+#Tests to see that all necessary libraries are intact.
+sub selftest(){
+    use GD;
+    use GD::Image;
+    
+}
+
+#Note that errors are suppressed within a macro.
+#(I don't know why.)
 sub loadmacros(){
     $dbh->do("CREATE TABLE IF NOT EXISTS macros(name,lang,comment,code);");
+    
+    loadmacro(".selftest","perl",
+	      "Test the installation and print any errors or warnings.",
+	      "selftest();");
     
     loadmacro(".funcs.overlap","sql",
 	      "List overlapping function addresses.",
