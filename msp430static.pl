@@ -24,7 +24,7 @@ use warnings;
 
 use DBI;
 use FindBin qw($RealBin);
-#use GD;  #only needed for gdmemmap
+use GD;  #only needed for memmap.gd.  Comment out if you like.
 
 
 my %opts;
