@@ -32,6 +32,7 @@ my %opts;
 #database handle
 my $dbh;
 
+my $graphviz='fdp';
 
 sub main{
     initopts();
@@ -191,7 +192,7 @@ sub selftest(){
     use GD;
     use GD::Image;
     print "Looking for required commands:\n";
-    reqcmd('dot',
+    reqcmd($graphviz,
 	   "Graphviz");
     reccmd('xview',
 	   'XView');
@@ -235,10 +236,10 @@ where funcs.checksum in (select checksum from lib);");
 	      "msp430static .callgraph.ps| kghostview -");
     loadmacro(".callgraph.xview","system",
 	      "View a callgraph in xview.",
-	      "msp430static .callgraph | dot -Tgif >.temp.gif && xview .temp.gif; rm -f .temp.gif");
+	      "msp430static .callgraph | $graphviz -Tgif >.temp.gif && xview .temp.gif; rm -f .temp.gif");
     loadmacro(".callgraph.ps","system",
 	      "Postscript callgraph, sized for US Letter.",
-	      "msp430static .callgraph | dot -Tps -x -Gsize=\"7,10\" -Grankdir=\"LR\"");
+	      "msp430static .callgraph | $graphviz -Tps -x -Gsize=\"7,10\" -Grankdir=\"LR\"");
     loadmacro(".callgraph.lp","system",
 	      "Print callgraph for US Letter.",
 	      "msp430static .callgraph.ps | lp");
