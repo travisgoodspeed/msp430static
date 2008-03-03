@@ -175,11 +175,34 @@ sub loadmacro{
     $sth->finish();
 }
 
+sub reqcmd{
+    my $cmd=shift();
+    my $app=shift();
+    system("which $cmd >/dev/null 2>/dev/null || echo ERROR:   $app not found.");
+}
+sub reccmd{
+    my $cmd=shift();
+    my $app=shift();
+    system("which $cmd >/dev/null 2>/dev/null || echo WARNING: $app not found.");
+}
+
 #Tests to see that all necessary libraries are intact.
 sub selftest(){
     use GD;
     use GD::Image;
-    
+    print "Looking for required commands:\n";
+    reqcmd('dot',
+	   "Graphviz");
+    reccmd('xview',
+	   'XView');
+    reccmd('kghostview',
+	   'KGhostView');
+    reqcmd('msp430-objdump',
+	   'MSPGCC msp430objdump');
+    reqcmd('msp430-gcc',
+	   'MSPGCC');
+    reccmd('eog',
+	   'Eye of GNOME');
 }
 
 #Note that errors are suppressed within a macro.
