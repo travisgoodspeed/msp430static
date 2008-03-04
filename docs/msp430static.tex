@@ -17,9 +17,52 @@
 \section{init}
 
 
+\chapter{Compilers}
+
+\section{mspgcc}
+
+This is the only compiler for which complete support is available,
+and it is the primary target of the framework.  {\tt msp430-objdump}
+can dump libraries with symbol information, and libraries are grabbed
+by {\tt .lib.import.gnu} from {\tt /usr/local/msp430}.
+
+\section{IAR}
+
+\todo{Import script pending.}
+
+{\tt /opt/iar/common/bin/xlink.exe} can be used to dump a library with symbol information.
+Libraries are stored in {\tt /opt/iar/430/lib/}.  Be sure to call the
+executables through wine.
+
+\section{Code Composer}
+
+\todo{Import script pending.}
+
+{\tt /opt/cc430/bin/dis430.exe} can be used to dump the libraries.
+Libraries are stored in {\tt /opt/cc430/lib}.
+
+\section{Crossworks}
+
+\todo{Import script pending.}
+
+{\tt /opt/cw430/bin/hex} can be used to dump the libraries.
+Libraries are stored in {\tt /opt/cw430/lib}.
+
+\section{ImageCraft}
+
+\todo{Import script pending.}
+
+Libraries exist in {\tt /opt/iccv7430/lib}.  Libraries are in an ASCII format
+similar to that use by AS430.  {\tt libc.a} ought to be simple enough to parse
+by Perl.
+
 \appendix
 
-\section{SQL Functions}
+\chapter{Subs}
+%\input this
+
+\chapter{Macros}
+%\input this
 
 \printindex
 \end{document}
