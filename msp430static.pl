@@ -281,9 +281,12 @@ where funcs.checksum in (select checksum from lib);");
 	      "Import mspgcc libraries from /usr/local/msp430.",
 	      "msp430-objdump -D `find /usr/local/msp430 -name \*.a` | m4s lib");
     loadmacro(".lib.import.tinyos","system",
-	      "Import mspgcc libraries from /usr/local/msp430.",
+	      "Import TinyOS libraries from /opt/tinyos-2.x.",
 	      "msp430-objdump -D `find /opt/tinyos-2.x/apps -name \*.exe` | m4s lib");
-    
+    loadmacro(".lib.import.contiki","system",
+	      "Import Contiki 2.x libraries from /opt/contiki-2.x.",
+	      "msp430-objdump -D `find /opt/contiki-2.x -name \*.sky` | m4s lib");
+	      
     loadmacro(".memmap.gd.gif","perl",
 	      "Output a GIF drawing of memory.",
 	      "gdmemmap('gif');");
