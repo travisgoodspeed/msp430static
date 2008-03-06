@@ -283,6 +283,9 @@ where funcs.checksum in (select checksum from lib);");
     loadmacro(".lib.import.tinyos","system",
 	      "Import TinyOS libraries from /opt/tinyos-2.x.",
 	      "msp430-objdump -D `find /opt/tinyos-2.x/apps -name \*.exe` | m4s lib");
+    loadmacro(".lib.import.tinyos1","system",
+	      "Import old TinyOS libraries from /opt/tinyos-1.x.",
+	      "msp430-objdump -D `find /opt/tinyos-1.x/apps -name \*.exe` | m4s lib");
     loadmacro(".lib.import.contiki","system",
 	      "Import Contiki 2.x libraries from /opt/contiki-2.x.",
 	      "msp430-objdump -D `find /opt/contiki-2.x -name \*.sky` | m4s lib");
