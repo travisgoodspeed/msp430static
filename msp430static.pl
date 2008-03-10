@@ -155,6 +155,13 @@ sub loadsubs{
 	    'Returns a line of code as an Intel Hex entry.  [broken]',
 	    'sub { return to_ihex(shift()); }');
     
+    loadsub('topcode',0,'perl',
+	    "Returns the address of the greatest address of code.",
+	    "sub { return 
+             dbscalar(\"
+                select address from code where address<dehex('ffe0')
+                order by address desc limit 1;
+             \") ; }");
 }
 
 sub loadmacro{
@@ -259,6 +266,16 @@ where funcs.checksum in (select checksum from lib);");
     loadmacro(".subs","sql",
 	      "Lists all additional SQL functions.",
 	      "select name,comment from subs order by name asc;");
+    
+    loadmacro(".code.missing","sql",
+	      "List addresses where code is expected, but does not exist.",
+	      "select enhex(address+2) from code
+               where address+2 not in (select address from code)
+               and address+4 not in (select address from code)
+               
+               and address>dehex('0200') and address<topcode();
+               
+               order by address desc;");
     
     loadmacro(".funcs.inlibs","sql",
 	      "List functions which appear in libraries.",
