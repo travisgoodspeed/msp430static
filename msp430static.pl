@@ -133,7 +133,6 @@ sub loadsubs{
 	    'Converts a numeral to a hex string.',
 	    'sub { return sprintf("%04x",shift()); }');
     
-    #Sometimes this is a native function.
     loadsub('dehex', 1, 'perl',
 	    'Converts a hex string to a numeral.',
 	    'sub { return hex(shift()); }');
@@ -155,9 +154,10 @@ sub loadsubs{
 	    'Returns a line of code as an Intel Hex entry.  [broken]',
 	    'sub { return to_ihex(shift()); }');
     
+    #VERY slow, don't use this.
     loadsub('topcode',0,'perl',
 	    "Returns the address of the greatest address of code.",
-	    "sub { return 
+	    "sub { print '.\n'; return 
              dbscalar(\"
                 select address from code where address<dehex('ffe0')
                 order by address desc limit 1;
@@ -273,7 +273,7 @@ where funcs.checksum in (select checksum from lib);");
                where address+2 not in (select address from code)
                and address+4 not in (select address from code)
                
-               and address>dehex('0200') and address<topcode();
+               and address>dehex('0200') and address<dehex('ffe0')
                
                order by address desc;");
     
