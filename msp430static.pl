@@ -227,11 +227,17 @@ sub loadmacros(){
 	      "select enhex(a.address),enhex(b.address)
 from funcs a, funcs b where a.address!=b.address
 and a.address<b.end and b.address<a.end;");
+    
     loadmacro(".symbols.recover","sql",
 	      "Recover symbol names from libraries.",
 	      "update funcs 
 set name=(select name from lib l where l.checksum=funcs.checksum)
 where funcs.checksum in (select checksum from lib);");
+    loadmacro(".symbols.import.ic7","perl",
+	      "Load symbol names from an ImageCraft V7 .mp file.",
+	      "readiccv7mp();");
+    
+    
     loadmacro(".callgraph","sql",
 	      "Dump a digraph call tree for graphviz.",
 	      "select callgraph();");
@@ -312,7 +318,8 @@ where funcs.checksum in (select checksum from lib);");
     loadmacro(".lib.import.contiki","system",
 	      "Import Contiki 2.x libraries from /opt/contiki-2.x.",
 	      "msp430-objdump -D `find /opt/contiki-2.x -name \\*.sky` | m4s lib");
-	      
+    
+    
     loadmacro(".memmap.gd.gif","perl",
 	      "Output a GIF drawing of memory.",
 	      "gdmemmap('gif');");
@@ -834,13 +841,17 @@ sub addry{
     return int(shift()/256);
 }
 
-
+#Insert a symbol into the symbols table and update funciton entries.
 sub insym{
     my $adr=shift();
     my $name=shift();
     #insert into symbols(address,name);
     my $sth = $dbh->prepare("insert into symbols values (?,?);");
     $sth->execute($adr,$name);
+    $sth->finish();
+    
+    $sth = $dbh->prepare("update funcs set name=? where address=?;");
+    $sth->execute($name,$adr);
     $sth->finish();
 }
 
@@ -1224,6 +1235,27 @@ sub readin(){
 	print "$_" if $opts{"printall"};
     }
 }
+
+#Read a .mp file from ICCv7.
+sub readiccv7mp(){
+    my $working=1;
+    
+    #Delete analysis.
+    $dbh->do("DELETE FROM symbols;");
+    
+    #read each line and load it.
+    while(<STDIN>){
+	if ($_ =~/\s*([0-9A-F]{4})\s*(\w+)\s*\n/){
+	    printf ("found $2 at $1\n") if($opts{"debug"});
+	    insym(hex($1),$2);
+	    
+	}else{
+	    print "WTF: $_" if($opts{"wtf"});
+	}
+	print "$_" if $opts{"printall"};
+    }
+}
+
 
 sub analyze{
     my @c=@called;
