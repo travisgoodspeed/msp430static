@@ -263,6 +263,12 @@ where funcs.checksum in (select checksum from lib);");
     loadmacro(".macros","sql",
 	      "Lists all available macros.",
 	      "select name,comment from macros order by name asc;");
+    loadmacro(".macros.html","sql",
+	      "Lists all available macros in HTML, for the website.",
+	      "select
+'<dt>'||name||'</dt>',
+'<dd>'||comment||'</dd>'
+ from macros order by name asc;");
     loadmacro(".subs","sql",
 	      "Lists all additional SQL functions.",
 	      "select name,comment from subs order by name asc;");
@@ -428,7 +434,6 @@ sub dbindex{
     $dbh->do("CREATE INDEX IF NOT EXISTS clib ON lib(checksum);");
     $dbh->do("CREATE INDEX IF NOT EXISTS nfuncs ON funcs(name);");
     $dbh->do("CREATE INDEX IF NOT EXISTS cfuncs ON funcs(checksum);");
-    
 }
 
 #write to the database
