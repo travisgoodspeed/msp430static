@@ -883,7 +883,7 @@ sub inins{
     #3: Instruction, like "jmp" or "mov.b"
     #4: All params, unparsed.
     #5: comments, everything after ';'.
-    #print "$1|$2|$3|$4|$5\n" if $1 ne "";
+    print "$1|$2|$3|$4|$5\n" if($opts{'verbose'});
     my $at=hex($1);
     $code[hex($1)]=$_;
     incall($1,$5) if $3 eq "call";
@@ -1035,7 +1035,7 @@ sub fnend{
     for(split(/\n/)){
 	#$lline=$_;
 	#printf "Trying $_\n";
-	if(/(....):/){
+	if(/(\w*):/){
 	    $ladr=hex($1);
 	    #printf "It might end at $ladr\n";
 	}
@@ -1051,7 +1051,7 @@ sub netanalyze{
     
     $_=$r;
     for(split(/\n/)){
-	if($_=~/call.*0x(....)/){
+	if($_=~/call.*0x(\w*)/){
 	    my $toward=$1;
 	    if($opts{"debug"} or $opts{"code"}){
 		print "#calls $toward\n";
@@ -1109,7 +1109,7 @@ sub readlib(){
 	    $fname="$nextfn";
 	    $fprint="";
 	    $asm="";
-	}elsif ($_ =~/(....):  (.. ..)/){
+	}elsif ($_ =~/(\w*):  (.. ..)/){
 	    $asm.=$_;
 	    $fprint.=$2; #perhaps innapropriate?
 	#For debugging, should only be non-executable parts and section headers
@@ -1206,7 +1206,7 @@ sub readin(){
 	    
 	    #IVT Entries
 	    #    fffe:       00 11           interrupt service routine at 0x1100
-	    #~ /[\s\t]*(....):[\s\t]*(.. ..)[\s\t]*interrupt service routine at 0x(....)/;
+	    #~ /[\s\t]*(\w*):[\s\t]*(.. ..)[\s\t]*interrupt service routine at 0x(....)/;
 	}elsif($_ =~ /[\s\t]*(....):[\s\t]*(.. ..)[\s\t]*interrupt service routine at 0x(....)/){
 	    inivt() ;
 	}
@@ -1216,7 +1216,7 @@ sub readin(){
 	#    11b8:       cd 4f 00 00     mov.b   r15,    0(r13)  ;
 	#    1111:       22222222222     33333   44444444444444  555555
 	#    f896:	     30 40 a2 f8 	br	#0xf8a2		;
-	elsif ($_ =~ /\s(....):\s(.. .. .. ..)\s\t([^ \t]{2,5})\s([^;]*)\s;*\s?(.*)/){
+	elsif ($_ =~ /\s(\w*):\s(.. .. .. ..)\s\t([^ \t]{2,5})\s([^;]*)\s;*\s?(.*)/){
 	    inins();
 	}
 	
@@ -1224,7 +1224,7 @@ sub readin(){
 	    #printf "%08x: %s\n",hex($1),$2;
 	    insym(hex($1),$2);
 	    
-	}elsif ($_ =~/\s(....):\s(.. ..)\s/){
+	}elsif ($_ =~/\s(\w*):\s(.. ..)\s/){
 	    #$asm.=$_;
 	    #$fprint.=$2; #perhaps innapropriate?
 	    indat();
