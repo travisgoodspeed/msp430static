@@ -960,7 +960,7 @@ sub getroutine{
     while(
 	#Local limits.
 	(
-	 (!($cmd =~/ret/) && !($cmd=~/br/))
+	 (!($cmd =~/ret/) && !($cmd=~/jmp\s*\$\+0/) && !($cmd=~/br/))
 	 ||
 	 ($addr<$rjmplimit)
 	)
