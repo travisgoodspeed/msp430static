@@ -221,7 +221,10 @@ sub loadmacros(){
     loadmacro(".selftest","perl",
 	      "Test the installation and print any errors or warnings.",
 	      "selftest();");
-    
+
+    loadmacro(".funcs.regen","perl",
+	      "Regenerate the functions list from code, calls, and symbols.",
+	      "regenfuncs();");
     loadmacro(".funcs.overlap","sql",
 	      "List overlapping function addresses.",
 	      "select enhex(a.address),enhex(b.address)
@@ -376,7 +379,7 @@ sql         Non-interactive SQL shell, for scripting.
 
 
 
-my(@IVT, @sections, @code, @called, @calls, @callfrom);
+my( @sections, @code, @called, @calls, @callfrom);
 #For psmemmap and (possibly) others.  Values are hex.
 #my @memmappix;
 
@@ -458,11 +461,6 @@ sub dbinit{
 	$dbh->do("INSERT INTO code VALUES ($i, '$tmp');") if $code[$i] ne '';
     }
     
-    for($i=0;$i<0x10000;$i++){
-	$tmp=hex($IVT[$i]);
-	$dbh->do("INSERT INTO ivt VALUES ($i, '$tmp');") if $IVT[$i] ne '';
-    }
-    
 #This should come from database, not local variable.
 #     my $res=$dbh->selectall_arrayref("SELECT dest FROM fcalls;");
 #     foreach(@$res){
@@ -470,22 +468,7 @@ sub dbinit{
 # 	my $target=$_->[0];
 	
 #     }
-    my @c=@called;
-    for(@c){
-	my $name=$_;
-	$i=hex($_);
-	my $sname=dbscalar("SELECT name from symbols where address=$i");
-	$name=$sname if $sname;
-	
-	printf "#Identified function: $name at 0x%X\n",$i  if $opts{"debug"};
-	
-	my $r= getroutine(hex($_));
-	my $fingerprint=fprintfunc($r);
-	my $fnend=fnend($r);
-	#print "$fnend\n";
-	$dbh->do("INSERT INTO funcs VALUES ($i,$fnend,'$r','$name','$fingerprint');");
-	#print $r if $opts{"code"};
-    }
+    regenfuncs();
     
     
     $dbh->do("CREATE INDEX IF NOT EXISTS adfuncs ON funcs(address,end);")
@@ -523,6 +506,28 @@ sub dbinit{
 # 	printf("$asm");
 #     }
 # }
+
+
+sub regenfuncs{
+    my @c=@called;
+    my $i;
+    $dbh->do("delete from funcs;");
+    for(@c){
+	my $name=$_;
+	$i=hex($_);
+	my $sname=dbscalar("SELECT name from symbols where address=$i");
+	$name=$sname if $sname;
+	
+	printf "#Identified function: $name at 0x%X\n",$i  if $opts{"debug"};
+	
+	my $r= getroutine(hex($_));
+	my $fingerprint=fprintfunc($r);
+	my $fnend=fnend($r);
+	#print "$fnend\n";
+	$dbh->do("INSERT INTO funcs VALUES ($i,$fnend,'$r','$name','$fingerprint');");
+	#print $r if $opts{"code"};
+    }
+}
 
 #summarize the contents of the database
 sub printsummary{
@@ -780,7 +785,6 @@ sub initvars{
 #%called={fn1, fn2, fn3, fn4}
 
     for($i=0;$i<0x10000;$i++){
-	$IVT[$i]='';
 	$code[$i]='';
 	$calls[$i]=0;
 	$callfrom[$i]='';
@@ -859,10 +863,12 @@ sub insym{
 sub inivt{
     #print "Marking IVT Table Entry:\n";
     #print "$1, Routine at $3\n" if $1 ne "";
-    $IVT[hex($1)]=$3;
     $code[hex($1)]=$_;
-    #print $IVT[$1]."\n";
     incall($1,$3);
+    
+    my $adr=hex($1);
+    my $target=hex($3);
+    $dbh->do("INSERT INTO ivt VALUES ($adr, $target);");
     
     #$memmappix[hex($1)]=sprintf("%02x",0x00) if $opts{"psmemmap"} && !$opts{"color"};
     #$memmappix[hex($1)]=sprintf("%06x",0xFF) if $opts{"psmemmap"} && $opts{"color"};
