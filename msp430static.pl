@@ -26,7 +26,6 @@ use DBI;
 use FindBin qw($RealBin);
 use GD;  #only needed for memmap.gd.  Comment out if you like.
 
-
 my %opts;
 
 #database handle
@@ -379,7 +378,7 @@ sql         Non-interactive SQL shell, for scripting.
 
 
 
-my( @sections, @code, @called, @calls, @callfrom);
+my( @sections, @called, @calls, @callfrom);
 #For psmemmap and (possibly) others.  Values are hex.
 #my @memmappix;
 
@@ -454,12 +453,6 @@ sub dbinit{
     
     my ($i, $res, $tmp);
     
-    #TODO extend this to parse the script.
-    for($i=0;$i<0x10000;$i++){
-	$tmp=$code[$i];
-	$tmp =~ s/\s+$//;#strip surrounding whitespace.
-	$dbh->do("INSERT INTO code VALUES ($i, '$tmp');") if $code[$i] ne '';
-    }
     
 #This should come from database, not local variable.
 #     my $res=$dbh->selectall_arrayref("SELECT dest FROM fcalls;");
@@ -507,9 +500,12 @@ sub dbinit{
 #     }
 # }
 
-
+#TODO, rewrite this to use DB as source.
 sub regenfuncs{
     my @c=@called;
+    #@called sucks, use
+    #select distinct enhex(dest) from calls;
+    
     my $i;
     $dbh->do("delete from funcs;");
     for(@c){
@@ -572,6 +568,18 @@ where l.checksum=f.checksum and f.address=$fn");
     return $name if $name;
     return sprintf("%04x",$fn);
 }
+
+my @codecache;
+#Gets a line of code from the database.
+sub dbcode{
+    my $adr=shift;#better be integer
+    my $code=$codecache[$adr];
+    return $code if($code && ($codecache[$adr] ne "MISSING"));
+    $code=$codecache[$adr]=dbscalar("select asm from code where address=$adr");
+    $code=$codecache[$adr]="MISSING" if(!$code);
+    return $code;
+}
+
 #Gets a scalar from the database.
 sub dbscalar{
     my $query=shift;
@@ -582,6 +590,7 @@ sub dbscalar{
     foreach(@$res){
 	return $_->[0];
     }
+    return "";
 }
 
 
@@ -785,7 +794,6 @@ sub initvars{
 #%called={fn1, fn2, fn3, fn4}
 
     for($i=0;$i<0x10000;$i++){
-	$code[$i]='';
 	$calls[$i]=0;
 	$callfrom[$i]='';
 	#$memmappix[$i]=sprintf("%02x",0xF0) if $opts{"psmemmap"};
@@ -820,7 +828,7 @@ sub incall{
     return if($bar=~/&/);
     
     printf "#Call to '%x' from '%x'\n",hex($bar),hex($foo)  if $opts{"debug"};
-    if(!($bar=~/\(/) && $callfrom[hex($bar)] eq ''){
+    if(!($bar=~/\(/) && hex($bar)!=0 && $callfrom[hex($bar)] eq ''){
 	push(@called,$bar);
 	printf "#enlisted $bar\n" if $opts{"debug"};
 	$calls[hex($foo)]=hex($bar);
@@ -859,11 +867,20 @@ sub insym{
     $sth->finish();
 }
 
+#Insert an entry into the code table.
+sub incode{
+    my $adr=shift();
+    my $code=shift();
+    $code =~ s/\s+$//;#strip surrounding whitespace.
+    $dbh->do("INSERT INTO code VALUES ($adr, '$code');");
+    $codecache[$adr]=$code;
+}
+
 #Add an entry to IVT.
 sub inivt{
     #print "Marking IVT Table Entry:\n";
     #print "$1, Routine at $3\n" if $1 ne "";
-    $code[hex($1)]=$_;
+    #$code[hex($1)]=$_;
     incall($1,$3);
     
     my $adr=hex($1);
@@ -877,8 +894,7 @@ sub inivt{
 
 #Read an invalid instruction into the code table, for use as data.
 sub indat{
-    my $at=hex($1);
-    $code[$at]=$_;
+    incode(hex($1),$_);
 }
 
 #Read in an instruction.
@@ -891,11 +907,12 @@ sub inins{
     #5: comments, everything after ';'.
     print "$1|$2|$3|$4|$5\n" if($opts{'verbose'});
     my $at=hex($1);
-    $code[hex($1)]=$_;
+    #$code[hex($1)]=$_;
+    
     incall($1,$5) if $3 eq "call";
     incall($1,$4) if $3 eq "br";
-    #$memmappix[hex($1)]=sprintf("%02x",0x00) if $opts{"psmemmap"} && !$opts{"color"};
-    #$memmappix[hex($1)]=sprintf("%06x",0xFF) if $opts{"psmemmap"} && $opts{"color"};
+    
+    incode(hex($1),$_);
     
     #look for pokes
     my $poke=$4;
@@ -904,48 +921,9 @@ sub inins{
 	#printf "Poke to $poke\n";
 	$dbh->do("INSERT INTO pokes VALUES ($poke,$at);");
     }
+    
 }
 
-
-# #Print a postscript image of the memory map.
-# sub printpsmemmap{
-#     print "%!PS-Adobe-3.0 EPSF-3.0\n";
-#     print "%%Creator: msp430static by Travis Goodspeed\n";
-#     print "%%BoundingBox: 0 0 256 255\n";
-#     print "%%LanguageLevel: 2\n";
-#     print "%%Pages: 1\n";
-#     print "%%DocumentData: Clean7Bit\n";
-
-    
-#     #print "100 200 translate\n";
-#     #print "1 1 scale\n";
-    
-#     #Flips vertically, for regular bitmap orientation with top-left first.
-#     #print "256 256 8 [26 0 0 -34 0 34]\n";
-    
-#     #Stretches the graph.  Breaks \includegraphics.
-#     #print "256 256 8 [0.71 0 0 0.59 0 1]\n";
-#     #Normalize to 256 by 256 square.
-#     print "256 256 8 [1 0 0 1 0 1]\n";
-    
-#     #print "256 256 8 [32 0 0 38 0 38]\n"; #color
-
-    
-#     print "{<\n";
-#     for($i=0;$i<0xFFFF;$i++){
-# 	printf $memmappix[$i] if !$opts{"black"};
-# 	printf("%02x",0x00) if $opts{"black"};
-# 	printf "\n" if $i%0x100==0xFF;
-# 	#printf "\n" if $i%0x10==0xF;
-#     }
-#     print "\n";
-#     print ">}\n";
-#     print "image\n" if !$opts{"color"};
-#     print "false 3 colorimage\n" if $opts{"color"};
-    
-#     #print "showpage\n";
-#     print "\n%%EOF\n";
-# }
 
 #Given an address within a routine, this prints the whole routine.
 #It works by backing up to the preceding 'ret' or call target,
@@ -961,12 +939,13 @@ sub getroutine{
     
     #back up to one more than previous ret or call target.
     #This might give us trouble.
+    my $blanks=0;
     
     #prints everything until the first 'ret'.
     while(
 	#Local limits.
 	(
-	 (!($cmd =~/ret/) && !($cmd=~/jmp\s*\$\+0/) && !($cmd=~/br/))
+	 (!($cmd =~/ret/) && !($cmd=~/jmp\s*\$\+0/) && !($cmd=~/br/) && !($blanks>5))
 	 ||
 	 ($addr<$rjmplimit)
 	)
@@ -975,9 +954,14 @@ sub getroutine{
 	&& $addr<0xffde && $addr>0 && $addr<0xFFFF
 	){
 	
-	$cmd=$code[$addr+=2];
-	$res.=$cmd;
-	
+	#$cmd=$code[$addr+=2]; #fixme
+	$cmd=dbcode($addr+=2);
+	if($cmd ne ''){
+	    $res.="$cmd\n";
+	    $blanks=0;
+	}else{
+	    $blanks++;
+	}
 	#Update $rjmplimit if we are at a relative jump.
 	if($cmd=~/abs 0x(....)/){
 	    #printf "rjmplimit=0x$1\n";
