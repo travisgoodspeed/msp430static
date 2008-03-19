@@ -50,9 +50,9 @@ sub main{
 	analyze();
     }
     
-    if($opts{"index"}){
-	dbindex();
-    }
+    #Might as well make this default.
+    dbindex();
+    #if($opts{"index"});
     
     
     #Slowly deprecating in favor of macros.
