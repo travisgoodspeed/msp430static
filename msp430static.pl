@@ -41,17 +41,20 @@ sub main{
     loadsubs();
     
     if($opts{"lib"}){
-	readlib();
+	#readlib();
+	dbexec(".input.lib.gnu");
     }elsif($opts{"init"} || $opts{"reload"}){
+	
 	resetdb() if $opts{"init"};
 	resetdbreload() if $opts{"reload"};
+	dbindex();
 	readin();
 	dbinit();
 	analyze();
     }
     
     #Might as well make this default.
-    dbindex();
+    
     #if($opts{"index"});
     
     
@@ -238,6 +241,9 @@ where funcs.checksum in (select checksum from lib);");
     loadmacro(".symbols.import.ic7","perl",
 	      "Load symbol names from an ImageCraft V7 .mp file.",
 	      "readiccv7mp();");
+    loadmacro(".symbols.import.ic7","perl",
+	      "Load symbol names from an ImageCraft V7 .mp file.",
+	      "readiccv7mp();");
     
     
     loadmacro(".callgraph","sql",
@@ -320,6 +326,16 @@ where funcs.checksum in (select checksum from lib);");
     loadmacro(".lib.import.contiki","system",
 	      "Import Contiki 2.x libraries from /opt/contiki-2.x.",
 	      "msp430-objdump -D `find /opt/contiki-2.x -name \\*.sky` | m4s lib");
+    loadmacro(".lib.import.ic7","system",
+	      "Import ImageCraft V7 libraries from /opt/iccv7430.",
+	      "cat `find /opt/iccv7430/lib -name \*.a` | m4s .input.lib.ic7");
+    
+    loadmacro(".input.lib.gnu","perl",
+	      "Import GCC library from objdump.",
+	      "readlib()");
+    loadmacro(".input.lib.ic7","perl",
+	      "Import an ImageCraft 7 library from stdin.",
+	      "readiccv7a()");
     
     
     loadmacro(".memmap.gd.gif","perl",
@@ -576,7 +592,8 @@ sub dbcode{
     my $code=$codecache[$adr];
     return $code if($code && ($codecache[$adr] ne "MISSING"));
     $code=$codecache[$adr]=dbscalar("select asm from code where address=$adr");
-    $code=$codecache[$adr]="MISSING" if(!$code);
+    $codecache[$adr]="MISSING" if(!$code);
+    $code="" if $codecache[$adr] eq "MISSING";
     return $code;
 }
 
@@ -1082,19 +1099,22 @@ sub readlib(){
 	#    f896:	     30 40 a2 f8 	br	#0xf8a2		;
 	elsif ($_ =~ /\s(.*):\s(.. .. .. ..)\s\t([^ \t]{2,5})\s([^;]*)\s;*\s?(.*)/){
 	    #inins();
-	    #printf "GOT $_\n";
+	    printf "GOT $2 from $_\n" if $opts{"debug"};
 	    $fprint.=$2;
 	    $asm.=$_;
 	    #FIXME: There's no need to checksum here.
 	    #Perhaps run:
 	    #update lib set checksum=fprint(asm);
-	    
+	    #(Would ruin import from ICC.)
 	#}elsif ($_ =~ /00000000 <(.*)>/){
 	}elsif ($_ =~ /........ <(.*)>/){
 	    $nextfn=$1;
-	    $fprint=~s/ //g;
+	    
+	    $fprint=~s/fi//g;
 	    printf "#fingerprinted $fname\n";
-	    $dbh->do("INSERT INTO lib(name,checksum,asm) VALUES ('$fname','$fprint', '$asm');");
+	    printf "#as $fprint\n" if $opts{"debug"};
+	    #$dbh->do("INSERT INTO lib(name,checksum,asm) VALUES ('$fname','$fprint', '$asm');");
+	    inlib($fname,$fprint,$asm);
 	    #printf "New function $nextfn\n";
 	    $fname="$nextfn";
 	    $fprint="";
@@ -1106,6 +1126,7 @@ sub readlib(){
 	}else{
 	    print "WTF: $_" if $opts{"wtf"};
 	}
+	#printf "$2\n";
 	print "$_" if $opts{"printall"};
     }
     
@@ -1244,6 +1265,62 @@ sub readiccv7mp(){
 	}
 	print "$_" if $opts{"printall"};
     }
+}
+#Read a .a file from ICCv7.
+sub readiccv7a(){
+    my $working=1;
+    
+    #Delete analysis.
+    #$dbh->do("DELETE FROM symbols;");
+    
+    
+    my ($fn, $print, $asm);
+    
+    #read each line and load it.
+    while(<STDIN>){
+	
+	#if ($_ =~/\s*([0-9A-F]{4})\s*(\w+)\s*\n/){
+	#    printf ("found $2 at $1\n")
+	#    insym(hex($1),$2);
+	
+	if($_=~/\.start/){
+	    printf("Found .start.\n")  if($opts{"debug"} && $opts{"verbose"});
+	    $fn='';
+	    $print='';
+	    $asm='';
+	}elsif($_=~/\.end/){
+	    printf("Found .end, inserting record.\n")  if($opts{"debug"} && $opts{"verbose"});
+	    printf "#fingerprinted $fn\n";
+	    printf "#as $print\n" if $opts{"debug"};
+	    inlib($fn,$print,$asm);
+	}elsif($_=~/S (\w+) Def0000/){
+	    printf "Found S line for $1\n"  if($opts{"debug"} && $opts{"verbose"});
+	    $fn=$1;
+	}elsif($_=~/T (.. ..) (.*)\n/){
+	    #In reading a T-line, we assume the code is in order.
+	    #This isn't required by the standard, but is true of AS430 and ICCV7
+	    $print.=$2;
+	}else{
+	    print "WTF: $_" if($opts{"wtf"});
+	}
+	
+	print "$_" if $opts{"printall"};
+    }
+}
+
+#insert a new entry into the library table.
+sub inlib{
+    my $fname=shift;
+    my $fprint=shift;
+    my $asm=shift;
+    
+    #Clean up the fingerprint.
+    $fprint=~s/ //g;
+    $fprint=~s/\r//g;    #Remove CR, which sometimes sneaks in.
+    $fprint=lc($fprint);
+    
+    $dbh->do("INSERT INTO lib(name,checksum,asm)
+              VALUES ('$fname','$fprint', '$asm');");
 }
 
 
