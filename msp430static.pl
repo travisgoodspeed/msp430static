@@ -31,7 +31,10 @@ my %opts;
 #database handle
 my $dbh;
 
-my $graphviz='fdp';
+
+#Use fdp for massive graphs.
+my $graphviz='dot';
+
 
 sub main{
     initopts();
@@ -50,7 +53,7 @@ sub main{
 	dbindex();
 	readin();
 	dbinit();
-	analyze();
+	dbanalyze();
     }
     
     #Might as well make this default.
@@ -217,8 +220,12 @@ sub selftest(){
 
 #Note that errors are suppressed within a macro.
 #(I don't know why.)
-sub loadmacros(){
+sub loadmacros{
     $dbh->do("CREATE TABLE IF NOT EXISTS macros(name,lang,comment,code);");
+    
+    loadmacro(".calls.regen","perl",
+	      "Regnerate the calls table using dbnetanalyze().",
+	      "dbnetanalyze();");
     
     loadmacro(".selftest","perl",
 	      "Test the installation and print any errors or warnings.",
@@ -411,6 +418,26 @@ sub dbopen{
 #Returns the starting address of the function containing the given address.
 sub addr2func{
     my $adr=shift();
+    my $sth = $dbh->prepare('SELECT distinct address FROM funcs where address<=? order by address desc limit 1;')
+	or die "Couldn't prepare statement: " . $dbh->errstr;
+    
+    $sth->execute($adr)
+	or die "Couldn't execute statement: " . $sth->errstr;
+
+    # Read the matching records and print them out          
+    while (my @data = $sth->fetchrow_array()) {
+	my $address = $data[0];
+	return $address;
+    }
+    
+    if ($sth->rows == 0) {
+	return -1;
+    }
+    
+    $sth->finish;
+}
+sub oldaddr2func{
+    my $adr=shift();
     my $sth = $dbh->prepare('SELECT distinct address FROM funcs where address<=? and end>=?;')
 	or die "Couldn't prepare statement: " . $dbh->errstr;
     
@@ -429,6 +456,8 @@ sub addr2func{
     
     $sth->finish;
 }
+
+
 
 #Returns the name field of the function containing the given address.
 sub addr2funcname{
@@ -517,7 +546,7 @@ sub dbinit{
 # }
 
 #TODO, rewrite this to use DB as source.
-sub regenfuncs{
+sub oldregenfuncs{
     my @c=@called;
     #@called sucks, use
     #select distinct enhex(dest) from calls;
@@ -533,6 +562,30 @@ sub regenfuncs{
 	printf "#Identified function: $name at 0x%X\n",$i  if $opts{"debug"};
 	
 	my $r= getroutine(hex($_));
+	my $fingerprint=fprintfunc($r);
+	my $fnend=fnend($r);
+	#print "$fnend\n";
+	$dbh->do("INSERT INTO funcs VALUES ($i,$fnend,'$r','$name','$fingerprint');");
+	#print $r if $opts{"code"};
+    }
+}
+sub regenfuncs{
+    my $c=dbrows("select distinct enhex(dest) from calls union select distinct enhex(dest) from ivt;");
+    #@called sucks, use
+    #select distinct enhex(dest) from calls;
+    
+    my $i;
+    $dbh->do("delete from funcs;");
+    for(@$c){
+	my $R=$_->[0];
+	my $name=$R;
+	$i=hex($R);
+	my $sname=dbscalar("SELECT name from symbols where address=$i");
+	$name=$sname if $sname;
+	
+	printf "#Identified function: $name at 0x%X\n",$i  if $opts{"debug"};
+	
+	my $r= getroutine(hex($R));
 	my $fingerprint=fprintfunc($r);
 	my $fnend=fnend($r);
 	#print "$fnend\n";
@@ -609,6 +662,19 @@ sub dbscalar{
     }
     return "";
 }
+#Get rows from the database
+sub dbrows{
+    my $query=shift;
+    printf "$query\n" if $opts{'debug'};
+    #First, name our vertices.
+    my $res=$dbh->selectall_arrayref($query);
+    return $res;
+    #foreach(@$res){
+    #return $_->[0];
+    #}
+    #return "";
+}
+
 
 
 #Database shell.  Useful for additional instructions.
@@ -990,6 +1056,8 @@ sub getroutine{
 }
 
 
+
+
 my @colors=("red","green","blue");
 my $colori=0;
 #Analyze an individual function.
@@ -1064,9 +1132,55 @@ sub netanalyze{
 		print "#calls $toward\n";
 	    }
 	    my $to=hex($toward);
-	    $dbh->do("INSERT INTO calls VALUES ($at,$to)");
+	    $dbh->do("INSERT INTO calls(src,dest) VALUES ($at,$to)");
 	}
     }
+}
+
+#Identify function calls from database.
+sub dbnetanalyze{
+    my $rows;
+    
+    #$dbh->do("delete from calls;");
+    $dbh->do("DROP TABLE IF EXISTS calls;");
+    $dbh->do("CREATE TABLE calls(src int, dest int, at int);");
+    
+    
+    #Grab calls.
+    $rows=dbrows("select asm from code where asm like '%call%';");
+    foreach(@$rows){
+	my $line=$_->[0];
+	if($line=~/(\w*):.*call.*0x(\w*)/){
+	    my $at=hex($1);
+	    my $to=hex($2);
+	    my $src=addr2func($at);
+	    $dbh->do("INSERT INTO calls(src,at,dest) VALUES ($src,$at,$to)");
+	}else{
+	    print "HUH: $line\n";
+	}
+    }
+    
+    
+    #Grab absolute branches.
+#     m4s sql> select asm from code where asm like '%br%';                                                                   
+#     4036:       30 40 dc 43     br      #0x43dc         ;
+#     403a:       30 40 3e 40     br      #0x403e         ;
+#     4124:       10 4f 28 41     br      16680(r15)              ;
+#     4564:       30 40 58 4a     br      #0x4a58         ;
+    
+    $rows=dbrows("select asm from code where asm like '%30 40%br%';");
+    foreach(@$rows){
+	my $line=$_->[0];
+	if($line=~/(\w*):.*30 40.*br.*0x(\w*)/){
+	    my $at=hex($1);
+	    my $to=hex($2);
+	    my $src=addr2func($at);
+	    $dbh->do("INSERT INTO calls(src,at,dest) VALUES ($src,$at,$to)");
+	}else{
+	    print "HUH: $line\n";
+	}
+    }
+    
 }
 
 #Read a library, marking symbol names and checksums.
@@ -1168,7 +1282,7 @@ sub resetdbreload(){
     $dbh->do("CREATE TABLE funcs(address int,end int, asm, name, checksum);");
     
     $dbh->do("DROP TABLE IF EXISTS calls;");
-    $dbh->do("CREATE TABLE calls(src int, dest int);");
+    $dbh->do("CREATE TABLE calls(src int, at int, dest int);");
     
     $dbh->do("DROP VIEW IF EXISTS fcalled;");
     $dbh->do("CREATE VIEW fcalled as
@@ -1324,6 +1438,13 @@ sub inlib{
 }
 
 
+sub dbanalyze{
+    dbnetanalyze();  #Get calls.
+    regenfuncs();    #Get functions.
+    dbnetanalyze();  #Fix call names.
+}
+
+#Ancient code, scheduled for deletion.
 sub analyze{
     my @c=@called;
     for(@c){
@@ -1408,12 +1529,13 @@ sub callgraph{
     
     #Next, draw some edges!
     $res=$dbh->selectall_arrayref(
-	q(select src,dest from calls;));
+	q(select src,dest,enhex(at) from calls;));
     foreach(@$res){
-	my($src,$dest);
+	my($src,$dest,$at);
 	$src=$_->[0];
 	$dest=$_->[1];
-	$graph.="$src -> $dest;\n";
+	$at=$_->[2];
+	$graph.="$src -> $dest [label=\"$at\"];\n";
     }
 
     
