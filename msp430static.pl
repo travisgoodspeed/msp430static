@@ -132,7 +132,9 @@ sub regsub{
 
 #Loads all default functions into the database.
 sub loadsubs{
-    $dbh->do("CREATE TABLE IF NOT EXISTS subs(name,args,lang,comment,code);");
+    $dbh->do("CREATE TABLE  if not exists subs(
+name varchar,args varchar,
+lang varchar,comment varchar,code varchar);");
     loadoldsubs();
     loadsub('enhex', 1, 'perl',
 	    'Converts a numeral to a hex string.',
@@ -221,7 +223,14 @@ sub selftest(){
 #Note that errors are suppressed within a macro.
 #(I don't know why.)
 sub loadmacros{
-    $dbh->do("CREATE TABLE IF NOT EXISTS macros(name,lang,comment,code);");
+    $dbh->do("
+CREATE TABLE IF NOT EXISTS
+              macros(
+              name varchar,
+              lang varchar,
+              comment varchar,
+              code varchar);
+");
     
     loadmacro(".calls.regen","perl",
 	      "Regnerate the calls table using dbnetanalyze().",
@@ -410,7 +419,10 @@ my( @sections, @called, @calls, @callfrom);
 sub dbopen{
     my $databasefile="";
     $databasefile="430static.db";# if $opts{"dbwrite"};
-    $dbh = DBI->connect( "dbi:SQLite:$databasefile" ) || die "Cannot connect.";
+    my $dburl=$ENV{'M4SDB'};
+    $dburl= "dbi:SQLite:$databasefile" if !$dburl;
+    print "Connecting to $dburl\n" if $opts{"debug"};
+    $dbh = DBI->connect( $dburl ) || die "Cannot connect to $dburl";
     print "Database connected.\n" if $opts{"debug"};
     
 }
@@ -1156,7 +1168,7 @@ sub dbnetanalyze{
 	    my $src=addr2func($at);
 	    $dbh->do("INSERT INTO calls(src,at,dest) VALUES ($src,$at,$to)");
 	}else{
-	    print "HUH: $line\n";
+	    print "WTF (dbnetanalyze): $line\n" if $opts{"wtf"};
 	}
     }
     
@@ -1177,9 +1189,12 @@ sub dbnetanalyze{
 	    my $src=addr2func($at);
 	    $dbh->do("INSERT INTO calls(src,at,dest) VALUES ($src,$at,$to)");
 	}else{
-	    print "HUH: $line\n";
+	    print "WTF (dbnetanalyze): $line\n" if $opts{"wtf"};
 	}
     }
+    
+    #Grab a branch table?
+    #http://travisgoodspeed.blogspot.com/2008/02/switchcase-headaches-in-msp430-assembly.html
     
 }
 
