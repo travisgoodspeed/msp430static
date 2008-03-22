@@ -984,6 +984,19 @@ sub inivt{
     
     #$memmappix[hex($1)]=sprintf("%02x",0x00) if $opts{"psmemmap"} && !$opts{"color"};
     #$memmappix[hex($1)]=sprintf("%06x",0xFF) if $opts{"psmemmap"} && $opts{"color"};
+}
+
+#Add a note.
+sub innote{
+    my $adr=$1;
+    my $note=$2;
+    my $sth = $dbh->prepare(
+	'INSERT INTO notes(address, comment)
+         VALUES(?,?);')
+	or die "Couldn't prepare statement: " . $dbh->errstr;
+    
+    $sth->execute($1,$2)             # Execute the query
+	or die "Couldn't execute statement: " . $sth->errstr;
 
 }
 
@@ -991,6 +1004,7 @@ sub inivt{
 sub indat{
     incode(hex($1),$_);
 }
+
 
 #Read in an instruction.
 sub inins{
@@ -1290,6 +1304,9 @@ sub resetdbreload(){
     $dbh->do( "DROP TABLE IF EXISTS code;");
     $dbh->do( "CREATE TABLE code (address int, asm);");
     
+    $dbh->do( "DROP TABLE IF EXISTS notes;");
+    $dbh->do( "CREATE TABLE notes (address int, comment varchar);");
+    
     $dbh->do( "DROP TABLE IF EXISTS symbols;");
     $dbh->do( "CREATE TABLE symbols (address int, name);");
     
@@ -1318,7 +1335,7 @@ sub resetdb(){
     
 }
 
-sub readin(){
+sub readin{
     my $working=1;
     
     
@@ -1329,6 +1346,7 @@ sub readin(){
     $dbh->do("DELETE FROM calls;");
     $dbh->do("DELETE FROM ivt;");
     $dbh->do("DELETE FROM pokes;");
+    $dbh->do("DELETE FROM notes;");
     
     #read each line and load it.
     while(<STDIN>){
@@ -1368,6 +1386,9 @@ sub readin(){
 	    #$asm.=$_;
 	    #$fprint.=$2; #perhaps innapropriate?
 	    indat();
+	}elsif($_=~/#(\w\w\w\w) (.*)/){
+	    #print "$1:\t$2\n";
+	    innote(hex($1),$2);
 	#For debugging, should only be non-executable parts and section headers
 	}else{
 	    print "WTF: $_" if($opts{"wtf"});
