@@ -1,8 +1,8 @@
 #!/usr/bin/perl
 
-#msp430static.pl
-#A static analysis tool for the MSP430 by Travis Goodspeed.
-#Copyright (C) 2008 Travis Goodspeed
+# msp430static.pl
+# A static analysis tool for the MSP430 by Travis Goodspeed.
+# Copyright (C) 2008 Travis Goodspeed
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -119,6 +119,7 @@ sub loadsub{
     
     regsub($name,$args,$lang,$code);
 }
+
 #registers a function in $dbh
 #name, args, lang, code
 sub regsub{
@@ -171,6 +172,8 @@ lang varchar,comment varchar,code varchar);");
              \") ; }");
 }
 
+
+#Load a macro and insert it into the database, replacing any prior copy.
 sub loadmacro{
     my $name=shift();
     my $lang=shift();
@@ -190,11 +193,14 @@ sub loadmacro{
     $sth->finish();
 }
 
+#Print an error if a unix command doesn't exist in PATH.
 sub reqcmd{
     my $cmd=shift();
     my $app=shift();
     system("which $cmd >/dev/null 2>/dev/null || echo ERROR:   $app not found.");
 }
+
+#Print a warning if a unix command doens't exist in PATH.
 sub reccmd{
     my $cmd=shift();
     my $app=shift();
@@ -290,6 +296,11 @@ where funcs.checksum in (select checksum from lib);");
 	      "Dumps the project an a.out executable.",
 	      "msp430static .export.ihex >.temp.ihex; msp430-objcopy -I ihex -O elf32-msp430 .temp.ihex a.out; rm -f .temp.ihex");
     
+    #FIXME Make this use motelist.
+    loadmacro(".install.telosb","system",
+	      "Installs the project to a TelosB over /dev/ttyUSB0 using tos-bsl.",
+	      "m4s .export.ihex | tos-bsl --telosb -c /dev/ttyUSB0 -r -e -I -p -");
+    
     loadmacro(".macros","sql",
 	      "Lists all available macros.",
 	      "select name,comment from macros order by name asc;");
@@ -308,9 +319,7 @@ where funcs.checksum in (select checksum from lib);");
 	      "select enhex(address+2) from code
                where address+2 not in (select address from code)
                and address+4 not in (select address from code)
-               
                and address>dehex('0200') and address<dehex('ffe0')
-               
                order by address desc;");
     
     loadmacro(".funcs.inlibs","sql",
@@ -448,26 +457,27 @@ sub addr2func{
     
     $sth->finish;
 }
-sub oldaddr2func{
-    my $adr=shift();
-    my $sth = $dbh->prepare('SELECT distinct address FROM funcs where address<=? and end>=?;')
-	or die "Couldn't prepare statement: " . $dbh->errstr;
-    
-    $sth->execute($adr,$adr)             # Execute the query
-	or die "Couldn't execute statement: " . $sth->errstr;
 
-    # Read the matching records and print them out          
-    while (my @data = $sth->fetchrow_array()) {
-	my $address = $data[0];
-	return $address;
-    }
+# sub oldaddr2func{
+#     my $adr=shift();
+#     my $sth = $dbh->prepare('SELECT distinct address FROM funcs where address<=? and end>=?;')
+# 	or die "Couldn't prepare statement: " . $dbh->errstr;
     
-    if ($sth->rows == 0) {
-	return -1;
-    }
+#     $sth->execute($adr,$adr)             # Execute the query
+# 	or die "Couldn't execute statement: " . $sth->errstr;
+
+#     # Read the matching records and print them out          
+#     while (my @data = $sth->fetchrow_array()) {
+# 	my $address = $data[0];
+# 	return $address;
+#     }
     
-    $sth->finish;
-}
+#     if ($sth->rows == 0) {
+# 	return -1;
+#     }
+    
+#     $sth->finish;
+# }
 
 
 
@@ -557,30 +567,30 @@ sub dbinit{
 #     }
 # }
 
-#TODO, rewrite this to use DB as source.
-sub oldregenfuncs{
-    my @c=@called;
-    #@called sucks, use
-    #select distinct enhex(dest) from calls;
+# sub oldregenfuncs{
+#     my @c=@called;
+#     #@called sucks, use
+#     #select distinct enhex(dest) from calls;
     
-    my $i;
-    $dbh->do("delete from funcs;");
-    for(@c){
-	my $name=$_;
-	$i=hex($_);
-	my $sname=dbscalar("SELECT name from symbols where address=$i");
-	$name=$sname if $sname;
+#     my $i;
+#     $dbh->do("delete from funcs;");
+#     for(@c){
+# 	my $name=$_;
+# 	$i=hex($_);
+# 	my $sname=dbscalar("SELECT name from symbols where address=$i");
+# 	$name=$sname if $sname;
 	
-	printf "#Identified function: $name at 0x%X\n",$i  if $opts{"debug"};
+# 	printf "#Identified function: $name at 0x%X\n",$i  if $opts{"debug"};
 	
-	my $r= getroutine(hex($_));
-	my $fingerprint=fprintfunc($r);
-	my $fnend=fnend($r);
-	#print "$fnend\n";
-	$dbh->do("INSERT INTO funcs VALUES ($i,$fnend,'$r','$name','$fingerprint');");
-	#print $r if $opts{"code"};
-    }
-}
+# 	my $r= getroutine(hex($_));
+# 	my $fingerprint=fprintfunc($r);
+# 	my $fnend=fnend($r);
+# 	#print "$fnend\n";
+# 	$dbh->do("INSERT INTO funcs VALUES ($i,$fnend,'$r','$name','$fingerprint');");
+# 	#print $r if $opts{"code"};
+#     }
+# }
+
 sub regenfuncs{
     my $c=dbrows("select distinct enhex(dest) from calls union select distinct enhex(dest) from ivt;");
     #@called sucks, use
@@ -982,6 +992,7 @@ sub inivt{
     my $target=hex($3);
     $dbh->do("INSERT INTO ivt VALUES ($adr, $target);");
     
+    
     #$memmappix[hex($1)]=sprintf("%02x",0x00) if $opts{"psmemmap"} && !$opts{"color"};
     #$memmappix[hex($1)]=sprintf("%06x",0xFF) if $opts{"psmemmap"} && $opts{"color"};
 }
@@ -1025,7 +1036,7 @@ sub inins{
     
     #look for pokes
     my $poke=$4;
-    if($poke=~/&0x(....)/){
+    if($poke && $poke=~/&0x(....)/){
 	$poke=hex($1);
 	#printf "Poke to $poke\n";
 	$dbh->do("INSERT INTO pokes VALUES ($poke,$at);");
@@ -1367,6 +1378,7 @@ sub readin{
 	    #~ /[\s\t]*(\w*):[\s\t]*(.. ..)[\s\t]*interrupt service routine at 0x(....)/;
 	}elsif($_ =~ /[\s\t]*(....):[\s\t]*(.. ..)[\s\t]*interrupt service routine at 0x(....)/){
 	    inivt() ;
+	    inins();
 	}
 	
 	#Instructions
