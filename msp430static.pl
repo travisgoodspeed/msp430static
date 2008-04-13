@@ -141,6 +141,10 @@ lang varchar,comment varchar,code varchar);");
 	    'Converts a numeral to a hex string.',
 	    'sub { return sprintf("%04x",shift()); }');
     
+    loadsub('bsl_chipid',0,'perl',
+	    'Returns the hex chip id from the BSL ROM at 0xff0.',
+	    'sub {return bsl_chipid();}');
+    
     loadsub('dehex', 1, 'perl',
 	    'Converts a hex string to a numeral.',
 	    'sub { return hex(shift()); }');
@@ -237,6 +241,21 @@ CREATE TABLE IF NOT EXISTS
               comment varchar,
               code varchar);
 ");
+    
+    loadmacro(".contribute.bsl","perl",
+	      "Dumps a file, bsl.txt, containing the BSL of the current image.",
+	      "contribute_bsl();");
+    
+    loadmacro(".code.drop.ffff","sql",
+	      "Drops all lines of 'FFFF FFFF', which are uncleared flash.",
+	      "delete from code where asm like '%ff ff ff ff%';");
+
+    
+    
+    #This doesn't work.
+#     loadmacro(".svn.update","shell",
+# 	      "Updates to the latest version by svn.",
+# 	      "cd $RealBin && svn update");
     
     loadmacro(".calls.regen","perl",
 	      "Regnerate the calls table using dbnetanalyze().",
@@ -394,7 +413,9 @@ where funcs.checksum in (select checksum from lib);");
 
 #TODO: Replace this with Getopt::Long
 sub initopts{
+    my $count=0;
     for(@ARGV){
+	$count++;
 	$opts{$_}=1;
 	if($_ eq "--help" or $_ eq "-h"){
 	    print "Usage: $0 [options]
@@ -415,6 +436,7 @@ sql         Non-interactive SQL shell, for scripting.
 	    exit;
 	}
     }
+    $opts{"shell"}=1 if $count<1;
 }
 
 
@@ -727,6 +749,16 @@ sub rlshell{
     require Term::ReadLine;
     Term::ReadLine->import;
     
+    print "msp430static r";
+    system "svn info $RealBin  | grep Revision | sed 's/Revision: //';";
+    print "from ";
+    system "svn info $RealBin | grep Date | sed 's/.*(//' | sed 's/)//'";
+    print "
+Copyright (c) 2008, Travis Goodspeed <travis\@utk.edu>
+
+This program is free software. You can distribute it and/or modify it
+under the terms of the GNU General Public License version 2.\n";
+    
     my $term = new Term::ReadLine 'msp430static';
     my $prompt = "m4s sql> ";
     my $OUT = $term->OUT || \*STDOUT;
@@ -1017,8 +1049,12 @@ sub indat{
 }
 
 
+
 #Read in an instruction.
 sub inins{
+    #TODO add a progress meter.
+    #This can take a long time on the 430x chips.
+    
     #print "Marking function:\n";
     #1: address
     #2: Up to four bytes in little-endian, like "30 41" for 0x4130.
@@ -1027,6 +1063,7 @@ sub inins{
     #5: comments, everything after ';'.
     print "$1|$2|$3|$4|$5\n" if($opts{'verbose'});
     my $at=hex($1);
+
     #$code[hex($1)]=$_;
     
     incall($1,$5) if $3 eq "call";
@@ -1156,23 +1193,23 @@ sub fnend{
     return $ladr;
 }
 
-#Identify function calls.
-sub netanalyze{
-    my $at=shift;
-    my $r=shift;
+# #Identify function calls.
+# sub netanalyze{
+#     my $at=shift;
+#     my $r=shift;
     
-    $_=$r;
-    for(split(/\n/)){
-	if($_=~/call.*0x(\w*)/){
-	    my $toward=$1;
-	    if($opts{"debug"} or $opts{"code"}){
-		print "#calls $toward\n";
-	    }
-	    my $to=hex($toward);
-	    $dbh->do("INSERT INTO calls(src,dest) VALUES ($at,$to)");
-	}
-    }
-}
+#     $_=$r;
+#     for(split(/\n/)){
+# 	if($_=~/call.*0x(\w*)/){
+# 	    my $toward=$1;
+# 	    if($opts{"debug"} or $opts{"code"}){
+# 		print "#calls $toward\n";
+# 	    }
+# 	    my $to=hex($toward);
+# 	    $dbh->do("INSERT INTO calls(src,dest) VALUES ($at,$to)");
+# 	}
+#     }
+# }
 
 #Identify function calls from database.
 sub dbnetanalyze{
@@ -1217,6 +1254,8 @@ sub dbnetanalyze{
 	    print "WTF (dbnetanalyze): $line\n" if $opts{"wtf"};
 	}
     }
+    
+    $dbh->do("delete from calls where src=0;"); #Replace this.
     
     #Grab a branch table?
     #http://travisgoodspeed.blogspot.com/2008/02/switchcase-headaches-in-msp430-assembly.html
@@ -1492,23 +1531,23 @@ sub dbanalyze{
     dbnetanalyze();  #Fix call names.
 }
 
-#Ancient code, scheduled for deletion.
-sub analyze{
-    my @c=@called;
-    for(@c){
-	#printf "#Identified function: at 0x%X\n",hex($_);
-	my $r= getroutine(hex($_));
-	fnanalyze(hex($_),$r);
-	print $r if $opts{"code"};
-    }
-    @c=@called;
-    for(@c){
-	printf "#Identified function: at 0x%X\n",hex($_)  if $opts{"code"};
-	my $r= getroutine(hex($_));
-	netanalyze(hex($_),$r);
-	print $r if $opts{"code"};
-    }
-}
+# #Ancient code, scheduled for deletion.
+# sub analyze{
+#     my @c=@called;
+#     for(@c){
+# 	#printf "#Identified function: at 0x%X\n",hex($_);
+# 	my $r= getroutine(hex($_));
+# 	fnanalyze(hex($_),$r);
+# 	print $r if $opts{"code"};
+#     }
+#     @c=@called;
+#     for(@c){
+# 	printf "#Identified function: at 0x%X\n",hex($_)  if $opts{"code"};
+# 	my $r= getroutine(hex($_));
+# 	netanalyze(hex($_),$r);
+# 	print $r if $opts{"code"};
+#     }
+# }
 
 
 #Print a memory map for LaTeX/PSTricks.
@@ -1542,8 +1581,10 @@ sub pstmemmap{
 	my $cart=addr2memcart($_->[0]);
 	printf("\\psdot$cart \t%% %04x\n",$_->[0]);
     }
-
 }
+
+
+
 
 #perl -MCPAN -e shell
 #install GD
@@ -1615,6 +1656,7 @@ sub gdmemmap{
     # Allocate some colors
     my $white = $im->colorAllocate(255,255,255);
     my $black = $im->colorAllocate(0,0,0);
+    my $grey = $im->colorAllocate(100,100,100);
     my $red = $im->colorAllocate(255,0,0);
     my $blue = $im->colorAllocate(0,0,255);
     my $green = $im->colorAllocate(0,255,0);
@@ -1629,17 +1671,30 @@ sub gdmemmap{
     #$im->fill(1,256-1,$red);
     
     #Draw code in red.
-    my $res=$dbh->selectall_arrayref(q(SELECT address FROM code));
+    my $res=$dbh->selectall_arrayref(q(SELECT address,asm FROM code));
     foreach(@$res){
-	my($address,$x,$y);
+	my($address,$asm,$x,$y,$color);
 	$address=$_->[0];
+	$asm=$_->[1];
 	$x=addrx($address);
 	$y=addry($address);
+	
+	$color=$red;
+	$color=$grey if $asm=~/.*word.*/;
+	$color=$black if $asm=~/.*ff ff ff ff.*/;
+	
 	$y=256-$y; #flip vertically.
-	$im->setPixel($x,$y,$red);
-	$im->setPixel($x+1,$y,$red);
-	$im->setPixel($x+2,$y,$red);
-	$im->setPixel($x+3,$y,$red);
+	$im->setPixel($x,$y,$color);
+	$im->setPixel($x+1,$y,$color);
+	
+	if($asm=~/.*\w\w \w\w \w\w \w\w.*/){
+	    $x=addrx($address+2);
+	    $y=addry($address+2);
+	    
+	    $y=256-$y; #flip vertically.
+	    $im->setPixel($x,$y,$color);
+	    $im->setPixel($x+1,$y,$color);
+	}
     }
     
     #Draw global addresses in blue.
@@ -1652,8 +1707,8 @@ sub gdmemmap{
 	$y=256-$y; #flip vertically.
 	$im->setPixel($x,$y,$blue);
 	$im->setPixel($x+1,$y,$blue);
-	$im->setPixel($x+2,$y,$blue);
-	$im->setPixel($x+3,$y,$blue);
+	#$im->setPixel($x+2,$y,$blue);
+	#$im->setPixel($x+3,$y,$blue);
     }
     
     #Draw IVT in green.
@@ -1683,7 +1738,38 @@ sub gdmemmap{
     close STDOUT;
 }
 
+sub bsl_chipid(){
+    my $line=dbscalar("select asm from code where address like dehex('ff0');");
+    if($line=~ m/.*ff0:\s*(.. ..).*/){
+	my $id=$1;
+	$id=~s/ //;
+	return $id;
+    }else{
+	return 0;
+    }
+}
 
+sub contribute_bsl(){
+    #First, identify the chip ID.
+    my $id=bsl_chipid();
+    
+    if(!$id){
+	print "No BSL found.
+Be sure to include the region [0c00,1000) when dumping from a hardware chip.\n";
+	return;
+    }
+    
+    print "BSL found for chipid=$id.\n";
+    
+    #Then dump the code.
+    system(
+"echo \"select asm from code where address>=dehex('0c00') and address<=dehex('1000');\" |
+m4s sql >bsl_$id.txt && gzip bsl_$id.txt");
+    
+    #Then beg the user to submit it.
+    print "Please email ./bsl_$id.txt.gz to <tmgoodspeed at gmail.com>\n";
+    print "with 'CONTRIBUTE_BSL $id' as the title.\n";
+}
 
 
 main();
