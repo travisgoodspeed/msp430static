@@ -754,7 +754,7 @@ sub rlshell{
     print "from ";
     system "svn info $RealBin | grep Date | sed 's/.*(//' | sed 's/)//'";
     print "
-Copyright (c) 2008, Travis Goodspeed <travis\@utk.edu>
+Copyright (c) 2008, Travis Goodspeed <travis at utk.edu>
 
 This program is free software. You can distribute it and/or modify it
 under the terms of the GNU General Public License version 2.\n";
