@@ -47,7 +47,6 @@ sub main{
 	#readlib();
 	dbexec(".input.lib.gnu");
     }elsif($opts{"init"} || $opts{"reload"}){
-	
 	resetdb() if $opts{"init"};
 	resetdbreload() if $opts{"reload"};
 	dbindex();
@@ -55,11 +54,6 @@ sub main{
 	dbinit();
 	dbanalyze();
     }
-    
-    #Might as well make this default.
-    
-    #if($opts{"index"});
-    
     
     #Slowly deprecating in favor of macros.
     
@@ -140,6 +134,27 @@ lang varchar,comment varchar,code varchar);");
     loadsub('enhex', 1, 'perl',
 	    'Converts a numeral to a hex string.',
 	    'sub { return sprintf("%04x",shift()); }');
+    
+    loadsub('insflow',1,'perl',
+	    'Dumps the flow information of an instruction for graphviz.',
+	    'sub { return insflow(shift);}');
+    loadsub('fnflow',1,'perl',
+	    'Dumps the flow information of a function for graphviz.',
+	    'sub { return fnflow(shift);}');
+    
+    loadsub('inslen',1,'perl',
+	    'Returns the number of bytes of an instruction.  (2 or 4)',
+	    'sub {return inslen(shift);}');
+    loadsub('insop',1,'perl',
+	    'Returns the opcode of an instruction.',
+	    'sub {return insop(shift);}');
+    loadsub('insjmpoff',1,'perl',
+	    'Returns the relative offset of a jmp instruction',
+	    'sub {return insjmpoff(shift);}');
+    loadsub('insjmpabs',1,'perl',
+	    'Returns the absolute target of a jmp instruction',
+	    'sub {return insjmpabs(shift);}');
+    
     
     loadsub('bsl_chipid',0,'perl',
 	    'Returns the hex chip id from the BSL ROM at 0xff0.',
@@ -308,6 +323,7 @@ where funcs.checksum in (select checksum from lib);");
     loadmacro(".export.ihex","sql",
 	      "Dumps the project as an Intel Hex file.",
 	      "select to_ihex(asm) from code union all select ':00000001FF';");
+    
     loadmacro(".export.srec","system",
 	      "Dumps the project as a Motorolla SRec file.",
 	      "msp430static .export.ihex | srec_cat - -Intel");
@@ -730,7 +746,7 @@ sub dbshell{
     
     #printf "m4s>";
     while(<STDIN>){
- 	$res=$dbh->selectall_arrayref($_);
+ 	$res=$dbh->selectall_arrayref(dbpreproc($_));
  	foreach(@$res){
  	    my $i=-1;
  	    while($_->[++$i]){
@@ -760,7 +776,7 @@ This program is free software. You can distribute it and/or modify it
 under the terms of the GNU General Public License version 2.\n";
     
     my $term = new Term::ReadLine 'msp430static';
-    my $prompt = "m4s sql> ";
+    my $prompt = "m4s> ";
     my $OUT = $term->OUT || \*STDOUT;
         
     #Load history from database.
@@ -793,7 +809,7 @@ under the terms of the GNU General Public License version 2.\n";
 	$sth->finish();
 	
 	#Then exec.
-	dbexec($cmd);
+	dbexec(dbpreproc($cmd));
     }
     
 }
@@ -811,11 +827,101 @@ macros WHERE name=?");
     
     #Do the actual execution.
     dbexec($d->[3]) if $d->[1] eq 'sql';
-    eval($d->[3]) if $d->[1] eq 'perl';
+    eval($d->[3])   if $d->[1] eq 'perl';
     system($d->[3]) if $d->[1] eq 'system';
     
     #Clean up.
     $sth->finish();
+}
+
+#Generate an instruction flow graph.
+sub insflow{
+    my $ins=shift;
+    my $len=inslen($ins);
+    $ins=~/(\w+):/;
+    my $adr=hex($1);
+    my $hadr=$1;
+    my $next=$adr+$len;
+    my $op=insop($ins);
+    my $jmptarg=insjmpabs($ins);
+    
+    #return "+$len at $adr";
+    my $ret="";
+    $ret.="$adr -> $next;\n" 
+	if insop($ins) ne 'ret' &&
+	insop($ins) ne 'jmp';
+    $ret.="$adr -> $jmptarg;\n" if $jmptarg>0;
+    $ret.="$adr [label=\"$ins\"];";
+}
+
+#Generate an instruction flow graph for many instructions.
+sub fnflow{
+    my $graph="";
+    $_=shift;
+    for(split /\n/){
+	$graph.=insflow($_);
+    }
+    return "digraph g{\n$graph\n}";
+}
+
+#generate an flow graph for a region
+sub regflow{
+    my $start=shift;
+    my $end=shift;
+    print "digraph g{\n";
+    
+    print "}";
+}
+
+#length of an instruction in bytes
+sub inslen{
+    $_=shift;
+    if ($_ =~ /\s(.*):\s(.. ..) (.. ..)\s\t([^ \t]{2,5})/){
+	return 4 if($3 ne '     ');
+	return 2;
+    }
+    return 0;
+}
+#length of an instruction in bytes
+sub insop{
+    $_=shift;
+    if ($_ =~ /\s(.*):\s(.. ..) (.. ..)\s\t([^ \t]{2,5})/){
+	return $4;
+    }
+    return '????';
+}
+#offset of a jump instruction
+sub insjmpoff{
+    $_=shift;
+    if ($_ =~ /\$([^ ]*)/){
+	return $1;
+    }
+    return 0;
+}
+#offset of a jump instruction
+sub insjmpabs{
+    $_=shift;
+    if ($_ =~ /abs 0x(\w*)/){
+	return hex($1);
+    }
+    return 0;
+}
+
+
+#Preprocess an SQL string.
+sub dbpreproc{
+    my $cmd=shift;
+    
+    #Replace hex with decimal.
+    #FIXME make this only match a word of 0x, outside of quotes.
+    while($cmd=~/\b0x([0-9a-fA-F]+)\b/){
+	my $hex=$1;
+	my $dec=hex($hex);
+	$cmd=~s/0x$hex/$dec/g;
+    }
+    
+    print "postproc: $cmd\n\n" if $opts{'debug'};
+    return $cmd;
 }
 
 #Executes an instruction or macro.

@@ -1,4 +1,4 @@
-
+prefuse for visualization.  Req Java.
 
 A broken sub in the database will crash the program on loading.
 A simple fix is delete all entries in the subs table, but this would prevent
