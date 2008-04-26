@@ -38,7 +38,6 @@ my $graphviz='dot';
 
 sub main{
     initopts();
-    initvars();
     dbopen();
     loadmacros();
     loadsubs();
@@ -357,6 +356,9 @@ where funcs.checksum in (select checksum from lib);");
                and address>dehex('0200') and address<dehex('ffe0')
                order by address desc;");
     
+    loadmacro(".funcs","sql",
+	      "List functions which appear in libraries.",
+	      "select distinct enhex(address), name from funcs");
     loadmacro(".funcs.inlibs","sql",
 	      "List functions which appear in libraries.",
 	      "select distinct enhex(f.address), l.name from lib l,
@@ -430,6 +432,7 @@ where funcs.checksum in (select checksum from lib);");
 #TODO: Replace this with Getopt::Long
 sub initopts{
     my $count=0;
+        
     for(@ARGV){
 	$count++;
 	$opts{$_}=1;
@@ -453,13 +456,13 @@ sql         Non-interactive SQL shell, for scripting.
 	}
     }
     $opts{"shell"}=1 if $count<1;
+    
 }
 
 
 
-my( @sections, @called, @calls, @callfrom);
-#For psmemmap and (possibly) others.  Values are hex.
-#my @memmappix;
+#my( @calls, @callfrom);
+
 
 
 #connect to the database
@@ -469,7 +472,7 @@ sub dbopen{
     my $dburl=$ENV{'M4SDB'};
     $dburl= "dbi:SQLite:$databasefile" if !$dburl;
     print "Connecting to $dburl\n" if $opts{"debug"};
-    $dbh = DBI->connect( $dburl ) || die "Cannot connect to $dburl";
+    $dbh = DBI->connect($dburl) || die "Cannot connect to $dburl";
     print "Database connected.\n" if $opts{"debug"};
     
 }
@@ -558,76 +561,12 @@ sub dbinit{
     
     my ($i, $res, $tmp);
     
-    
-#This should come from database, not local variable.
-#     my $res=$dbh->selectall_arrayref("SELECT dest FROM fcalls;");
-#     foreach(@$res){
-# 	my $i=-1;
-# 	my $target=$_->[0];
-	
-#     }
     regenfuncs();
-    
     
     $dbh->do("CREATE INDEX IF NOT EXISTS adfuncs ON funcs(address,end);")
 	if !$opts{"noindex"};
     
-    
-    
-    #$res = $dbh->selectall_arrayref( q( SELECT a.lastname, a.firstname, b.title
-    #FROM books b, authors a
-    #WHERE b.title like '%Orient%'
-    #AND a.lastname = b.author ) );
-    #
-    #foreach( @$res ) {
-    #print "$_->[0], $_->[1]:\t$_->[2]\n";
-    #}
 }
-
-# #code
-# sub printdbcode(){
-#     my $res=$dbh->selectall_arrayref(q(SELECT address,end,asm,
-# (select name from lib as l where l.checksum=f.checksum)
-# 				     FROM funcs f));
-#     foreach(@$res){
-# 	my($address,$end,$asm,$vname);
-# 	$address=$_->[0];
-# 	$end=$_->[1];
-# 	$asm=$_->[2];
-#         $vname=$_->[3];
-# 	printf("$vname:\n",$address) if $vname;
-#         printf("%04x: \n",$address) if !$vname;
-# 	my $fprint=fprintfunc($asm);
-        
-#         #Print a warning here.
-#         printf("%s\n",getfnname($address));
-# 	printf("$asm");
-#     }
-# }
-
-# sub oldregenfuncs{
-#     my @c=@called;
-#     #@called sucks, use
-#     #select distinct enhex(dest) from calls;
-    
-#     my $i;
-#     $dbh->do("delete from funcs;");
-#     for(@c){
-# 	my $name=$_;
-# 	$i=hex($_);
-# 	my $sname=dbscalar("SELECT name from symbols where address=$i");
-# 	$name=$sname if $sname;
-	
-# 	printf "#Identified function: $name at 0x%X\n",$i  if $opts{"debug"};
-	
-# 	my $r= getroutine(hex($_));
-# 	my $fingerprint=fprintfunc($r);
-# 	my $fnend=fnend($r);
-# 	#print "$fnend\n";
-# 	$dbh->do("INSERT INTO funcs VALUES ($i,$fnend,'$r','$name','$fingerprint');");
-# 	#print $r if $opts{"code"};
-#     }
-# }
 
 sub regenfuncs{
     my $c=dbrows("select distinct enhex(dest) from calls union select distinct enhex(dest) from ivt;");
@@ -822,7 +761,6 @@ macros WHERE name=?");
     $sth->execute($cmd);
     my $d = $sth->fetchrow_arrayref;
     
-    #TODO check for non-existent macro
     return macroexec(".missing") if(!$d) ;
     
     #Do the actual execution.
@@ -935,17 +873,23 @@ sub dbexec{
 	macroexec($cmd);
 	return;
     }
-    
-    my $res=$dbh->selectall_arrayref($cmd);
-    foreach(@$res){
-	my $i=-1;
-	while($_->[++$i]){
-	    printf "%s",$_->[$i];
-	    printf "\t" if($_->[$i+1]);#print tab if not last
+ 
+#This test doesn't work.
+#TODO rewrite and enable.
+#    if($cmd=~/^select/ || $cmd=~/^SELECT/){
+	my $res=$dbh->selectall_arrayref($cmd) || return;
+	foreach(@$res){
+	    my $i=-1;
+	    while($_->[++$i]){
+		printf "%s",$_->[$i];
+		printf "\t" if($_->[$i+1]);#print tab if not last
+	    }
+	    printf "\n";
 	}
-	printf "\n";
-    }
-    #$term->addhistory($_) if /\S/;
+#    }else{
+#	$dbh->do($cmd);
+#   }
+    
 	
 }
 
@@ -1028,56 +972,6 @@ sub dbclose{
     #print "Database disconnected.\n" if $opts{"debug"};    
 }
 
-my $i;
-
-#Initialize variables
-sub initvars{    
-#$calls[src]=dest
-#$callfrom[dest]="src1 src2 src3"
-#%called={fn1, fn2, fn3, fn4}
-
-    for($i=0;$i<0x10000;$i++){
-	$calls[$i]=0;
-	$callfrom[$i]='';
-	#$memmappix[$i]=sprintf("%02x",0xF0) if $opts{"psmemmap"};
-	#$memmappix[$i]='aaaaff' if $opts{"psmemmap"} and $opts{"color"};
-	#print sprintf("%s\n",$code[$i]);
-    }
-}
-
-#foo: source address.
-#bar: Target address.
-sub incall{
-    my $foo=shift;
-    my $bar=shift;
-    $bar =~ s/[\#\s\t]//g;
-    $foo=~ s/0x//;
-    $bar=~ s/0x//;
-    
-    
-    
-    
-    #The call might be non-absolute, like the following:
-    #    6ad2:	10 4e d6 6a 	br	27350(r14)		;
-    #No point in indexing it, as the target addresses
-    #reside at 27350.
-    return if($bar=~/r/);
-    
-    #This is more managable, but not still difficult.  Lines
-    #like the one below call a jump table, but a jump table that
-    #often does not exist on first boot.
-    #    fb78:	10 42 e0 f7 	br	&0xf7e0		;
-    #There's nothing at F7E0 in this image.
-    return if($bar=~/&/);
-    
-    printf "#Call to '%x' from '%x'\n",hex($bar),hex($foo)  if $opts{"debug"};
-    if(!($bar=~/\(/) && hex($bar)!=0 && $callfrom[hex($bar)] eq ''){
-	push(@called,$bar);
-	printf "#enlisted $bar\n" if $opts{"debug"};
-	$calls[hex($foo)]=hex($bar);
-	$callfrom[hex($bar)].="$foo ";
-    }
-}
 
 
 #Convert an address in memory to coordinates on a memmap.
@@ -1122,17 +1016,10 @@ sub incode{
 #Add an entry to IVT.
 sub inivt{
     #print "Marking IVT Table Entry:\n";
-    #print "$1, Routine at $3\n" if $1 ne "";
-    #$code[hex($1)]=$_;
-    incall($1,$3);
     
     my $adr=hex($1);
     my $target=hex($3);
     $dbh->do("INSERT INTO ivt VALUES ($adr, $target);");
-    
-    
-    #$memmappix[hex($1)]=sprintf("%02x",0x00) if $opts{"psmemmap"} && !$opts{"color"};
-    #$memmappix[hex($1)]=sprintf("%06x",0xFF) if $opts{"psmemmap"} && $opts{"color"};
 }
 
 #Add a note.
@@ -1170,11 +1057,6 @@ sub inins{
     print "$1|$2|$3|$4|$5\n" if($opts{'verbose'});
     my $at=hex($1);
 
-    #$code[hex($1)]=$_;
-    
-    incall($1,$5) if $3 eq "call";
-    incall($1,$4) if $3 eq "br";
-    
     incode(hex($1),$_);
     
     #look for pokes
@@ -1236,51 +1118,6 @@ sub getroutine{
 }
 
 
-
-
-my @colors=("red","green","blue");
-my $colori=0;
-#Analyze an individual function.
-#analyze($addr,$body)
-sub fnanalyze{
-    my $at=shift;
-    my $r=shift;
-    my ($color,$cart);
-#     if($opts{"psmemmap"}){
-# 	$color=sprintf("%02x",$colori++%0x30+0xA0);
-# 	$_=$r;
-        
-# 	for(split(/\n/)){
-# 	    if($_=~/(....):/){
-# 		if(!$opts{"color"}){
-# 		    $memmappix[hex($1)]=$color;
-# 		    $memmappix[(hex($1)+1)%0x10000]=$color;
-# 		}else{
-# 		    #TODO
-# 		}
-# 	    }
-# 	}
-#     }
-#     if($opts{"memmap"}){
-# 	$color=$colors[$colori++%3];
-# 	my $start="\\listplot[showpoints=false,plotstyle=dots,linecolor=$color]\n{\n";
-# 	printf "%% memmap of function at 0x%X\n",$at ;
-# 	#printf $start;
-# 	$_=$r;
-        
-# 	printf "\\psset{linecolor=$color}\n";
-# 	printf "\\psset{dotscale=3.0 0.2}\n";
-# 	for(split(/\n/)){
-# 	    if($_=~/(....):/){
-# 		$cart=addr2memcart(hex($1));
-# 		#printf "}\n$start" if($_=~/(..00):/)
-		
-# 		printf("\\psdot$cart \t%% $1\n");
-# 	    }
-# 	}
-#     }
-}
-
 #Determine ending address of a function, given the assembly.
 sub fnend{
     my $fn=shift;
@@ -1299,23 +1136,6 @@ sub fnend{
     return $ladr;
 }
 
-# #Identify function calls.
-# sub netanalyze{
-#     my $at=shift;
-#     my $r=shift;
-    
-#     $_=$r;
-#     for(split(/\n/)){
-# 	if($_=~/call.*0x(\w*)/){
-# 	    my $toward=$1;
-# 	    if($opts{"debug"} or $opts{"code"}){
-# 		print "#calls $toward\n";
-# 	    }
-# 	    my $to=hex($toward);
-# 	    $dbh->do("INSERT INTO calls(src,dest) VALUES ($at,$to)");
-# 	}
-#     }
-# }
 
 #Identify function calls from database.
 sub dbnetanalyze{
@@ -1636,24 +1456,6 @@ sub dbanalyze{
     regenfuncs();    #Get functions.
     dbnetanalyze();  #Fix call names.
 }
-
-# #Ancient code, scheduled for deletion.
-# sub analyze{
-#     my @c=@called;
-#     for(@c){
-# 	#printf "#Identified function: at 0x%X\n",hex($_);
-# 	my $r= getroutine(hex($_));
-# 	fnanalyze(hex($_),$r);
-# 	print $r if $opts{"code"};
-#     }
-#     @c=@called;
-#     for(@c){
-# 	printf "#Identified function: at 0x%X\n",hex($_)  if $opts{"code"};
-# 	my $r= getroutine(hex($_));
-# 	netanalyze(hex($_),$r);
-# 	print $r if $opts{"code"};
-#     }
-# }
 
 
 #Print a memory map for LaTeX/PSTricks.
