@@ -137,6 +137,9 @@ lang varchar,comment varchar,code varchar);");
     loadsub('insflow',1,'perl',
 	    'Dumps the flow information of an instruction for graphviz.',
 	    'sub { return insflow(shift);}');
+    loadsub('insshort',1,'perl',
+	    'Shortens an instruction.',
+	    'sub { return insshort(shift);}');
     loadsub('fnflow',1,'perl',
 	    'Dumps the flow information of a function for graphviz.',
 	    'sub { return fnflow(shift);}');
@@ -772,9 +775,28 @@ macros WHERE name=?");
     $sth->finish();
 }
 
+#Shorten an instruction
+sub insshort{
+    $_=shift;
+    my $ret='';
+    for(split /\n/){
+	
+	s/^ *//;
+	s/\t/ /g;
+	s/( [a-f1-90]{2})/ /g;
+	s/ +/ /g;
+	s/;.*//g;
+	
+	
+	$ret.="$_";
+    }
+    return $ret;
+}
+
 #Generate an instruction flow graph.
 sub insflow{
     my $ins=shift;
+    my $shortins=insshort($ins);
     my $len=inslen($ins);
     $ins=~/(\w+):/;
     my $adr=hex($1);
@@ -789,7 +811,7 @@ sub insflow{
 	if insop($ins) ne 'ret' &&
 	insop($ins) ne 'jmp';
     $ret.="$adr -> $jmptarg;\n" if $jmptarg>0;
-    $ret.="$adr [label=\"$ins\"];";
+    $ret.="$adr [label=\"$shortins\"];";
 }
 
 #Generate an instruction flow graph for many instructions.
