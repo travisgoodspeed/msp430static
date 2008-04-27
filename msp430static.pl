@@ -793,6 +793,12 @@ sub insshort{
     return $ret;
 }
 
+#TODO finish this
+sub instime{
+    my $ins=shift;
+    
+}
+
 #Generate an instruction flow graph.
 sub insflow{
     my $ins=shift;
@@ -810,7 +816,7 @@ sub insflow{
     $ret.="$adr -> $next;\n" 
 	if insop($ins) ne 'ret' &&
 	insop($ins) ne 'jmp';
-    $ret.="$adr -> $jmptarg;\n" if $jmptarg>0;
+    $ret.="$adr -> $jmptarg [color=green label=\"2c\"];\n" if $jmptarg>0;
     $ret.="$adr [label=\"$shortins\"];";
 }
 
