@@ -35,6 +35,16 @@ my $dbh;
 #Use fdp for massive graphs.
 my $graphviz='dot';
 
+BEGIN {
+    eval {
+	require Digest::MD5;
+	import Digest::MD5 'md5_hex'
+    };
+    if ($@) { # ups, no Digest::MD5
+	require Digest::Perl::MD5;
+            import Digest::Perl::MD5 'md5_hex'
+    }             
+}
 
 sub main{
     initopts();
@@ -133,6 +143,12 @@ lang varchar,comment varchar,code varchar);");
     loadsub('enhex', 1, 'perl',
 	    'Converts a numeral to a hex string.',
 	    'sub { return sprintf("%04x",shift()); }');
+    loadsub('perl', 1, 'perl',
+	    'Evaluates a statement in perl.',
+	    'sub { return eval(shift); }');
+    loadsub('md5_hex', 1, 'perl',
+	    'Returns the md5 checksum of the input.',
+	    'sub { return md5_hex(shift); }');
     
     loadsub('insflow',1,'perl',
 	    'Dumps the flow information of an instruction for graphviz.',
@@ -260,8 +276,11 @@ CREATE TABLE IF NOT EXISTS
 ");
     
     loadmacro(".contribute.bsl","perl",
-	      "Dumps a file, bsl.txt, containing the BSL of the current image.",
+	      "Dumps a file containing the BSL of the current image.",
 	      "contribute_bsl();");
+    loadmacro(".contribute.lib","perl",
+	      "Dumps a file containing one-way hashes of the current library.",
+	      "contribute_lib();");
     
     loadmacro(".code.drop.ffff","sql",
 	      "Drops all lines of 'FFFF FFFF', which are uncleared flash.",
@@ -294,8 +313,8 @@ and a.address<b.end and b.address<a.end;");
     loadmacro(".symbols.recover","sql",
 	      "Recover symbol names from libraries.",
 	      "update funcs 
-set name=(select name from lib l where l.checksum=funcs.checksum)
-where funcs.checksum in (select checksum from lib);");
+set name=(select name from hashetlib l where l.checksum=md5_hex(funcs.checksum))
+where md5_hex(funcs.checksum) in (select checksum from hashetlib);");
     loadmacro(".symbols.import.ic7","perl",
 	      "Load symbol names from an ImageCraft V7 .mp file.",
 	      "readiccv7mp();");
@@ -362,14 +381,16 @@ where funcs.checksum in (select checksum from lib);");
     loadmacro(".funcs","sql",
 	      "List functions which appear in libraries.",
 	      "select distinct enhex(address), name from funcs");
+    
     loadmacro(".funcs.inlibs","sql",
 	      "List functions which appear in libraries.",
-	      "select distinct enhex(f.address), l.name from lib l,
-               funcs f where f.checksum=l.checksum;");
+	      "select distinct enhex(f.address), l.name from hashetlib l,
+               funcs f where md5_hex(f.checksum)=l.checksum;");
+    
     loadmacro(".funcs.notinlibs","sql",
 	      "List functiosn which do not appear in libraries.",
 	      "select distinct enhex(f.address),f.name from funcs f where
-               f.checksum not in (select checksum from lib);");
+               md5_hex(f.checksum) not in (select checksum from hashetlib);");
     loadmacro(".funcs.outside","sql",
 	      "List instructions where are not part of any function.",
 	      "select asm from code where addr2func(address)=-1
@@ -401,6 +422,13 @@ where funcs.checksum in (select checksum from lib);");
     loadmacro(".input.lib.ic7","perl",
 	      "Import an ImageCraft 7 library from stdin.",
 	      "readiccv7a()");
+    loadmacro(".input.lib.hashed","perl",
+	      "Import hash library.",
+	      "inputhashlib()");
+    
+    loadmacro(".lib.import.hashed","system",
+	      "Import standard libraries from $RealBin/libs.",
+	      "cat $RealBin/libs/*.txt | m4s .input.lib.hashed");
     
     
     loadmacro(".memmap.gd.gif","perl",
@@ -1332,17 +1360,23 @@ sub resetdb(){
     $dbh->do("DROP TABLE IF EXISTS lib;");
     $dbh->do("CREATE TABLE lib(name,comment,source,checksum,asm);");
     
+    $dbh->do("DROP TABLE IF EXISTS hashlib;");
+    $dbh->do("CREATE TABLE hashlib(name,checksum);");
+    dbexec('.lib.import.hashed');
     
     $dbh->do("DROP TABLE IF EXISTS history;");
     $dbh->do("CREATE TABLE history(id INTEGER PRIMARY KEY, cmd);");
     
     
+    $dbh->do("DROP VIEW IF EXISTS hashetlib;");
+    $dbh->do("CREATE VIEW hashetlib as
+              SELECT name,checksum FROM hashlib UNION SELECT name,md5_hex(checksum) FROM lib;");
 }
 
 sub readin{
     my $working=1;
     
-    
+    print "Reading code.\n";
 
     #Delete analysis.
     $dbh->do("DELETE FROM code;");
@@ -1399,6 +1433,25 @@ sub readin{
 	    print "WTF: $_" if($opts{"wtf"});
 	}
 	print "$_" if $opts{"printall"};
+    }
+}
+
+#Read a hashed library file as made by .contribute.lib
+sub inputhashlib(){
+    print "Reading library hashes.\n";
+    while(<STDIN>){
+	if($_=~/(................................)\s*(\w+)/){
+	    #print "Got $2 and $1\n";
+	        my $sth = $dbh->prepare(
+		    'insert into hashlib(name,checksum)
+values(?,?);')
+		    or die "Couldn't prepare statement: " . $dbh->errstr;
+		
+		$sth->execute($2,$1)
+		    or die "Couldn't execute statement: " . $sth->errstr;
+	}else{
+	    print "WTF $_\n" if $opts{'wtf'};
+	}
     }
 }
 
@@ -1486,6 +1539,7 @@ sub dbanalyze{
 }
 
 
+
 #Print a memory map for LaTeX/PSTricks.
 #This works, but will crash LaTeX for larger projects.
 sub pstmemmap{
@@ -1536,11 +1590,7 @@ sub callgraph{
     #$graph.="graph [rankdir = \"LR\"];\n";
     #$graph.="graph [width=6  height=10 fixedsize=true];\n";
     #$graph.="graph [pagewidth=6 pageheight=10];\n";
-#    First, name our vertices.
-#     my $res=$dbh->selectall_arrayref(
-# 	q(select address,name,
-#  (select name from lib as l where l.checksum=f.checksum)
-#           from funcs as f;));
+
     my $res=$dbh->selectall_arrayref(
 	q(select address,name,enhex(address)
           from funcs as f;));
@@ -1685,6 +1735,30 @@ sub bsl_chipid(){
     }
 }
 
+sub md5sum{
+    return md5_hex(shift);
+}
+
+sub contribute_lib(){
+    #Verify that we've got enough to contribute.
+    my $count=dbscalar('select count(*) from lib;');
+    
+    if($count==0){
+	print "Library is empty!\nYou've nothing to contribute. :-(\n";
+	return;
+    }
+    
+    #Then dump the code.
+    system(
+"echo \"select md5_hex(checksum),name from lib where  md5_hex(checksum)!='d41d8cd98f00b204e9800998ecf8427e';\" |
+m4s sql >lib.txt && gzip lib.txt");
+    
+    #Then beg the user to submit it.
+    print "Please email ./lib.txt.gz to <tmgoodspeed at gmail.com>\n";
+    print "with 'CONTRIBUTE_LIB' as the title.\n";
+    print "Include a description of what's in your library.\n";
+    print "(No poetry, please, unless it's in msp430 machine language.)\n";
+}
 sub contribute_bsl(){
     #First, identify the chip ID.
     my $id=bsl_chipid();

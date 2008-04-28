@@ -1,0 +1,10 @@
+The textfiles within this directory contain one-way hashes
+of standard libraries from various compilers, for use in
+identifying those functions.
+
+contiki.txt	Contiki 2.x from CVS for TelosB
+gnu.txt		GNU libc.
+ic7.txt		ImageCraft ICC430 V7
+tinyos.txt	TinyOS 2.x, Telos B
+tinyos1.txt	TinyOS 1.x, Telos B
+
