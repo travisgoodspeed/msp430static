@@ -19,6 +19,14 @@
 # Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
 
 
+#To install prereq, either
+#  perl -MCPAN -e shell
+#  install GD
+#or
+#  sudo g-cpan -i GD
+
+
+
 use strict;
 use warnings;
 
@@ -42,7 +50,7 @@ BEGIN {
     };
     if ($@) { # ups, no Digest::MD5
 	require Digest::Perl::MD5;
-            import Digest::Perl::MD5 'md5_hex'
+	import Digest::Perl::MD5 'md5_hex'
     }             
 }
 
@@ -246,8 +254,8 @@ sub reccmd{
 
 #Tests to see that all necessary libraries are intact.
 sub selftest(){
-    use GD;
     use GD::Image;
+    use Boost::Graph;
     print "Looking for required commands:\n";
     reqcmd($graphviz,
 	   "Graphviz");
@@ -811,7 +819,9 @@ sub insshort{
 	
 	s/^ *//;
 	s/\t/ /g;
-	s/(\b[a-f1-90]{2} )/ /g;
+	s/(\s[a-f1-90]{2}\s)/ /g;
+	s/(\s[a-f1-90]{2}\s)/ /g;
+	s/(\s[a-f1-90]{2}\s)/ /g;
 	s/ +/ /g;
 	s/;.*//g;
 	
@@ -832,6 +842,7 @@ sub insflow{
     my $ins=shift;
     my $shortins=insshort($ins);
     my $len=inslen($ins);
+    $len=2 if $len==0;
     $ins=~/(\w+):/;
     my $adr=hex($1);
     my $hadr=$1;
@@ -1576,9 +1587,6 @@ sub pstmemmap{
 
 
 
-#perl -MCPAN -e shell
-#install GD
-#sudo g-cpan -i GD
 
 sub printcallgraph{
     print callgraph();
