@@ -73,6 +73,7 @@ sub main{
     }
     
     #Slowly deprecating in favor of macros.
+    print "digraph g{\n" if  $opts{"graph"};
     
     rlshell() if $opts{"dbshell"} || $opts{"shell"};
     dbshell() if $opts{"sql"};
@@ -84,6 +85,7 @@ sub main{
     }
     
     dbclose();
+    print "}\n" if  $opts{"graph"};
 }
 
 #Loads subs from the database.
@@ -490,6 +492,7 @@ lib         Accept a library with debugging symbols as input, writing
 index       Create indices on the database.
 shell       Interactive SQL shell.
 sql         Non-interactive SQL shell, for scripting.
+graph       Surrounds output with 'digraph g{...}'.  Useful for graphviz.
 ";
 	    exit;
 	}
