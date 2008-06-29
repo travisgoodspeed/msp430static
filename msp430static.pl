@@ -32,12 +32,6 @@ use warnings;
 
 use DBI;
 use FindBin qw($RealBin);
-use lib qw($RealBin);
-use GD;  #only needed for memmap.gd.  Comment out if you like.
-
-#use lib qw(/myPerl/myModules/);
-
-
 require "$RealBin/MSP430static.pm";
 
 MSP430static::main();
