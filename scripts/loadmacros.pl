@@ -2,13 +2,13 @@
 #call as "m4s /loadmacros"
 
 
-loadmacro(".contribute.bsl","perl",
+loadmacro(".contribute.bsl","sql",
 	  "Dumps a file containing the BSL of the current image.",
-	  "contribute_bsl();");
+	  "/contribute/bsl");
 
-loadmacro(".contribute.lib","perl",
+loadmacro(".contribute.lib","sql",
 	  "Dumps a file containing one-way hashes of the current library.",
-	  "contribute_lib();");
+	  "/contribute/bsl");
 
 loadmacro(".code.drop.ffff","sql",
 	  "Drops all lines of 'FFFF FFFF', which are uncleared flash.",

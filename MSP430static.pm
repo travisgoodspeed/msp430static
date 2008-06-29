@@ -142,73 +142,7 @@ sub loadsubs{
 name varchar,args varchar,
 lang varchar,comment varchar,code varchar);");
     loadoldsubs();
-    loadsub('enhex', 1, 'perl',
-	    'Converts a numeral to a hex string.',
-	    'sub { return sprintf("%04x",shift()); }');
-    loadsub('perl', 1, 'perl',
-	    'Evaluates a statement in perl.',
-	    'sub { return eval(shift); }');
-    loadsub('md5_hex', 1, 'perl',
-	    'Returns the md5 checksum of the input.',
-	    'sub { return md5_hex(shift); }');
-    
-    loadsub('insflow',1,'perl',
-	    'Dumps the flow information of an instruction for graphviz.',
-	    'sub { return insflow(shift);}');
-    loadsub('insshort',1,'perl',
-	    'Shortens an instruction.',
-	    'sub { return insshort(shift);}');
-    loadsub('fnflow',1,'perl',
-	    'Dumps the flow information of a function for graphviz.',
-	    'sub { return fnflow(shift);}');
-    
-    loadsub('inslen',1,'perl',
-	    'Returns the number of bytes of an instruction.  (2 or 4)',
-	    'sub {return inslen(shift);}');
-    loadsub('insop',1,'perl',
-	    'Returns the opcode of an instruction.',
-	    'sub {return insop(shift);}');
-    loadsub('insjmpoff',1,'perl',
-	    'Returns the relative offset of a jmp instruction',
-	    'sub {return insjmpoff(shift);}');
-    loadsub('insjmpabs',1,'perl',
-	    'Returns the absolute target of a jmp instruction',
-	    'sub {return insjmpabs(shift);}');
-    
-    
-    loadsub('bsl_chipid',0,'perl',
-	    'Returns the hex chip id from the BSL ROM at 0xff0.',
-	    'sub {return bsl_chipid();}');
-    
-    loadsub('dehex', 1, 'perl',
-	    'Converts a hex string to a numeral.',
-	    'sub { return hex(shift()); }');
-
-    
-    loadsub('fprint', 1, 'perl',
- 	    'Position-invariant fingerprint of an assembly code string.',
- 	    'sub { return fprintfunc(shift()); }');
-    loadsub('addr2func', 1, 'perl',
-	    'Returns the starting address of the function containing the given address.',
-	    'sub { return addr2func(shift()); }');
-    loadsub('addr2funcname', 1, 'perl',
-	    'Returns the name of the function containing the given address.',
-	    'sub { return addr2funcname(shift()); }');
-    loadsub('callgraph', 0, 'perl',
-	    'Returns a graphviz callgraph.',
-	    'sub { return callgraph(); }');
-    loadsub('to_ihex', 1, 'perl',
-	    'Returns a line of code as an Intel Hex entry.  [broken]',
-	    'sub { return to_ihex(shift()); }');
-    
-    #VERY slow, don't use this.
-    loadsub('topcode',0,'perl',
-	    "Returns the address of the greatest address of code.",
-	    "sub { print '.\n'; return 
-             dbscalar(\"
-                select address from code where address<dehex('ffe0')
-                order by address desc limit 1;
-             \") ; }");
+    scriptexec("/loadsubs");
 }
 
 
@@ -1584,48 +1518,6 @@ sub bsl_chipid(){
 
 sub md5sum{
     return md5_hex(shift);
-}
-
-sub contribute_lib(){
-    #Verify that we've got enough to contribute.
-    my $count=dbscalar('select count(*) from lib;');
-    
-    if($count==0){
-	print "Library is empty!\nYou've nothing to contribute. :-(\n";
-	return;
-    }
-    
-    #Then dump the code.
-    system(
-"echo \"select md5_hex(checksum),name from lib where  md5_hex(checksum)!='d41d8cd98f00b204e9800998ecf8427e';\" |
-m4s sql >lib.txt && gzip lib.txt");
-    
-    #Then beg the user to submit it.
-    print "Please email ./lib.txt.gz to <tmgoodspeed at gmail.com>\n";
-    print "with 'CONTRIBUTE_LIB' as the title.\n";
-    print "Include a description of what's in your library.\n";
-    print "(No poetry, please, unless it's in msp430 machine language.)\n";
-}
-sub contribute_bsl(){
-    #First, identify the chip ID.
-    my $id=bsl_chipid();
-    
-    if(!$id){
-	print "No BSL found.
-Be sure to include the region [0c00,1000) when dumping from a hardware chip.\n";
-	return;
-    }
-    
-    print "BSL found for chipid=$id.\n";
-    
-    #Then dump the code.
-    system(
-"echo \"select asm from code where address>=dehex('0c00') and address<=dehex('1000');\" |
-m4s sql >bsl_$id.txt && gzip bsl_$id.txt");
-    
-    #Then beg the user to submit it.
-    print "Please email ./bsl_$id.txt.gz to <tmgoodspeed at gmail.com>\n";
-    print "with 'CONTRIBUTE_BSL $id' as the title.\n";
 }
 
 
