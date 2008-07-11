@@ -168,6 +168,7 @@ loadmacro(".memmap.gd.jpeg","perl",
 loadmacro(".memmap.gd.png","perl",
 	  "Output a PNG drawing of memory.",
 	  "gdmemmap('png');");
+
 loadmacro(".memmap.pstricks","perl",
 	  "Output a LaTeX drawing of memory.",
 	  "pstmemmap('png');");
