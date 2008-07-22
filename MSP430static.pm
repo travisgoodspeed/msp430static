@@ -41,7 +41,7 @@ my $dbh;
 
 
 #Use fdp for massive graphs.
-my $graphviz='dot';
+our $graphviz='fdp';
 
 require Digest::MD5;
 import Digest::MD5 'md5_hex';

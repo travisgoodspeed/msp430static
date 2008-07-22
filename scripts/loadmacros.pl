@@ -8,7 +8,7 @@ loadmacro(".contribute.bsl","sql",
 
 loadmacro(".contribute.lib","sql",
 	  "Dumps a file containing one-way hashes of the current library.",
-	  "/contribute/bsl");
+	  "/contribute/lib");
 
 loadmacro(".code.drop.ffff","sql",
 	  "Drops all lines of 'FFFF FFFF', which are uncleared flash.",
