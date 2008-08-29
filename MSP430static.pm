@@ -183,7 +183,7 @@ sub reccmd{
 #Tests to see that all necessary libraries are intact.
 sub selftest(){
     use GD::Image;
-    use Boost::Graph;
+    #use Boost::Graph;
     print "Looking for required commands:\n";
     reqcmd($graphviz,
 	   "Graphviz");

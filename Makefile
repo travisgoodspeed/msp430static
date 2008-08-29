@@ -12,3 +12,9 @@ uninstall:
 #	./msp430static.pl index
 #reload:
 #	./msp430static.pl reload <tests/tinyos/blink.exe.ss
+
+
+#pmods_cpan:
+#	perl -MCPAN -e 'install DBI'
+pmods_ubuntu:
+	apt-get install libdbi-perl libdbd-sqlite3-perl libgd-gd2-perl
