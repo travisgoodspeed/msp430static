@@ -17,4 +17,4 @@ uninstall:
 #pmods_cpan:
 #	perl -MCPAN -e 'install DBI'
 pmods_ubuntu:
-	apt-get install libdbi-perl libdbd-sqlite3-perl libgd-gd2-perl
+	apt-get install libdbi-perl libdbd-sqlite3-perl libgd-gd2-perl libterm-readline-perl-perl xloadimage

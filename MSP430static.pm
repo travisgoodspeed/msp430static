@@ -597,6 +597,16 @@ sub insshort{
     return $ret;
 }
 
+#Count the instructions within a string.
+sub inscount{
+    $_=shift;
+    my $i=0;
+    for(split /\n/){
+	$i++;
+    }
+    return $i;
+}
+
 #TODO finish this
 sub instime{
     my $ins=shift;

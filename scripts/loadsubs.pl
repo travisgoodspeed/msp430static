@@ -1,6 +1,7 @@
 #msp430static script
 #call as "m4s /loadsubs"
 
+
 loadsub('enhex', 1, 'perl',
 	'Converts a numeral to a hex string.',
 	'sub { return sprintf("%04x",shift()); }');
@@ -14,6 +15,9 @@ loadsub('md5_hex', 1, 'perl',
 loadsub('insflow',1,'perl',
 	'Dumps the flow information of an instruction for graphviz.',
 	'sub { return insflow(shift);}');
+loadsub('inscount',1,'perl',
+	'Counts the number of instructions in a string.',
+	'sub { return inscount(shift);}');
 loadsub('insshort',1,'perl',
 	'Shortens an instruction.',
 	'sub { return insshort(shift);}');
