@@ -1,0 +1,2 @@
+Dumps lines that access peripheral registers, along with function entry
+address and name.

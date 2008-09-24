@@ -544,7 +544,7 @@ under the terms of the GNU General Public License version 2.\n";
 sub scriptexec{
     my $cmd=shift;
     my $file="$RealBin/scripts$cmd.pl";
-    require $file;
+    do $file;
 }
 
 #Execute a macro, in any language, from the macros table.
