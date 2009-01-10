@@ -1,0 +1,2 @@
+Dumps "pop r11; ret" gadget entry points.
+Common in GCC.

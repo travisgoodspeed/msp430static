@@ -1437,6 +1437,7 @@ sub gdmemmap{
     my $red = $im->colorAllocate(255,0,0);
     my $blue = $im->colorAllocate(0,0,255);
     my $green = $im->colorAllocate(0,255,0);
+    my $iocolor = $im->colorAllocate(0,0,100);
     
     # Make the background transparent and interlaced
     #$im->transparent($white);
@@ -1460,6 +1461,7 @@ sub gdmemmap{
 	$color=$grey if $asm=~/.*word.*/;
 	$color=$black if $asm=~/.*ff ff ff ff.*/;
 	
+	
 	$y=256-$y; #flip vertically.
 	$im->setPixel($x,$y,$color);
 	$im->setPixel($x+1,$y,$color);
@@ -1477,13 +1479,16 @@ sub gdmemmap{
     #Draw global addresses in blue.
     $res=$dbh->selectall_arrayref(q(SELECT distinct address FROM pokes));
     foreach(@$res){
-	my($address,$x,$y);
+	my($address,$x,$y,$color);
+	$color=$blue;
 	$address=$_->[0];
 	$x=addrx($address);
 	$y=addry($address);
 	$y=256-$y; #flip vertically.
-	$im->setPixel($x,$y,$blue);
-	$im->setPixel($x+1,$y,$blue);
+	$color=$iocolor if $address<0x200;
+	
+	$im->setPixel($x,$y,$color);
+	$im->setPixel($x+1,$y,$color);
 	#$im->setPixel($x+2,$y,$blue);
 	#$im->setPixel($x+3,$y,$blue);
     }

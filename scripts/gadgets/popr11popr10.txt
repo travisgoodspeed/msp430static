@@ -1,0 +1,3 @@
+Dumps "pop r11; pop r10; ret" gadget entry points.
+Common in IAR.
+
