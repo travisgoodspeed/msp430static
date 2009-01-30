@@ -4,7 +4,8 @@
 
 loadmacro(".ivt","sql",
 	  "Dumps the Interrupt Vector Table (IVT)",
-	  "select enhex(address),enhex(dest) from ivt;");
+#	  "select enhex(address),enhex(dest) from ivt;");
+	  "select enhex(i.address),enhex(i.dest),(select name from funcs f where f.address=i.dest) from ivt as i;");
 
 loadmacro(".contribute.bsl","sql",
 	  "Dumps a file containing the BSL of the current image.",
