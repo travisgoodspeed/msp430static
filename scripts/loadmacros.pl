@@ -2,6 +2,10 @@
 #call as "m4s /loadmacros"
 
 
+loadmacro(".funcs.top10","sql",
+	  "Lists the top ten targets of function calls.",
+	  "select count(dest) as a, enhex(dest) from calls group by dest order by a desc limit 10;");
+
 loadmacro(".ivt","sql",
 	  "Dumps the Interrupt Vector Table (IVT)",
 #	  "select enhex(address),enhex(dest) from ivt;");
@@ -18,7 +22,6 @@ loadmacro(".contribute.lib","sql",
 loadmacro(".code.drop.ffff","sql",
 	  "Drops all lines of 'FFFF FFFF', which are uncleared flash.",
 	  "delete from code where asm like '%ff ff ff ff%';");
-
 
 
 #This doesn't work.
