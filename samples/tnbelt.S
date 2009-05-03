@@ -1,16 +1,12 @@
 
-tnbelt.exe:     file format elf32-msp430
+tnbelt.hex:     file format ihex
 
-Disassembly of section .text:
+Disassembly of section .sec1:
 
-00004000 <__init_stack>:
+00004000 <.sec1>:
     4000:	31 40 00 39 	mov	#14592,	r1	;#0x3900
-
-00004004 <__low_level_init>:
     4004:	b2 40 80 5a 	mov	#23168,	&0x0120	;#0x5a80
     4008:	20 01 
-
-0000400a <__do_copy_data>:
     400a:	3f 40 08 00 	mov	#8,	r15	;#0x0008
     400e:	0f 93       	cmp	#0,	r15	;r3 As==00
     4010:	05 24       	jz	$+12     	;abs 0x401c
@@ -18,25 +14,15 @@ Disassembly of section .text:
     4014:	9f 4f 58 42 	mov	16984(r15),4352(r15);
     4018:	00 11 
     401a:	fb 23       	jnz	$-8      	;abs 0x4012
-
-0000401c <__do_clear_bss>:
     401c:	3f 40 08 00 	mov	#8,	r15	;#0x0008
     4020:	0f 93       	cmp	#0,	r15	;r3 As==00
     4022:	04 24       	jz	$+10     	;abs 0x402c
     4024:	1f 83       	dec	r15		;
     4026:	cf 43 08 11 	mov.b	#0,	4360(r15);r3 As==00
     402a:	fc 23       	jnz	$-6      	;abs 0x4024
-
-0000402c <__jump_to_main>:
     402c:	30 40 7c 40 	br	#0x407c		;
-
-00004030 <__ctors_end>:
     4030:	30 40 34 40 	br	#0x4034		;
-
-00004034 <_unexpected_>:
     4034:	00 13       	reti			
-
-00004036 <init>:
     4036:	05 12       	push	r5		;
     4038:	04 12       	push	r4		;
     403a:	b2 40 80 5a 	mov	#23168,	&0x0120	;#0x5a80
@@ -59,8 +45,6 @@ Disassembly of section .text:
     4076:	34 41       	pop	r4		;
     4078:	35 41       	pop	r5		;
     407a:	30 41       	ret			
-
-0000407c <main>:
     407c:	31 40 fe 38 	mov	#14590,	r1	;#0x38fe
     4080:	04 41       	mov	r1,	r4	;
     4082:	b0 12 36 40 	call	#16438		;#0x4036
@@ -84,8 +68,6 @@ Disassembly of section .text:
     40c2:	e1 3f       	jmp	$-60     	;abs 0x4086
     40c4:	21 53       	incd	r1		;
     40c6:	30 40 56 42 	br	#0x4256		;
-
-000040ca <effects>:
     40ca:	0b 12       	push	r11		;
     40cc:	0a 12       	push	r10		;
     40ce:	05 12       	push	r5		;
@@ -198,8 +180,6 @@ Disassembly of section .text:
     4218:	3a 41       	pop	r10		;
     421a:	3b 41       	pop	r11		;
     421c:	30 41       	ret			
-
-0000421e <PartyMode>:
     421e:	05 12       	push	r5		;
     4220:	04 12       	push	r4		;
     4222:	d2 c3 23 00 	bic.b	#1,	&0x0023	;r3 As==01
@@ -210,8 +190,6 @@ Disassembly of section .text:
     4234:	34 41       	pop	r4		;
     4236:	35 41       	pop	r5		;
     4238:	00 13       	reti			
-
-0000423a <__udivmodhi4>:
     423a:	0e ee       	xor	r14,	r14	;
     423c:	3b 40 11 00 	mov	#17,	r11	;#0x0011
     4240:	05 3c       	jmp	$+12     	;abs 0x424c
@@ -225,11 +203,27 @@ Disassembly of section .text:
     4250:	1b 83       	dec	r11		;
     4252:	f7 23       	jnz	$-16     	;abs 0x4242
     4254:	30 41       	ret			
-
-00004256 <__stop_progExec__>:
     4256:	ff 3f       	jmp	$+0      	;abs 0x4256
-Disassembly of section .vectors:
+    4258:	ff 00       	.word	0x00ff;	????
+    425a:	00 00       	beq			
+    425c:	01 00       	.word	0x0001;	????
+    425e:	10 27       	jz	$-478    	;abs 0x4080
+Disassembly of section .sec2:
 
-0000ffe0 <InterruptVectors>:
-    ffe0:	30 40 30 40 30 40 30 40 1e 42 30 40 30 40 30 40     0@0@0@0@.B0@0@0@
-    fff0:	30 40 30 40 30 40 30 40 30 40 30 40 30 40 00 40     0@0@0@0@0@0@0@.@
+0000ffe0 <.sec2>:
+    ffe0:	30 40       	interrupt service routine at 0x4030
+    ffe2:	30 40       	interrupt service routine at 0x4030
+    ffe4:	30 40       	interrupt service routine at 0x4030
+    ffe6:	30 40       	interrupt service routine at 0x4030
+    ffe8:	1e 42       	interrupt service routine at 0x421e
+    ffea:	30 40       	interrupt service routine at 0x4030
+    ffec:	30 40       	interrupt service routine at 0x4030
+    ffee:	30 40       	interrupt service routine at 0x4030
+    fff0:	30 40       	interrupt service routine at 0x4030
+    fff2:	30 40       	interrupt service routine at 0x4030
+    fff4:	30 40       	interrupt service routine at 0x4030
+    fff6:	30 40       	interrupt service routine at 0x4030
+    fff8:	30 40       	interrupt service routine at 0x4030
+    fffa:	30 40       	interrupt service routine at 0x4030
+    fffc:	30 40       	interrupt service routine at 0x4030
+    fffe:	00 40       	interrupt service routine at 0x4000
