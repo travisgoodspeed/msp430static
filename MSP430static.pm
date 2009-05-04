@@ -596,6 +596,21 @@ sub insshort{
     }
     return $ret;
 }
+#Shorten an instruction
+sub insbytes{
+    $_=shift;
+    my $ret='';
+    for(split /\n/){
+	
+	while(s/(\s[a-f1-90]{2}\s)/ /g){
+	    $ret.=$1;
+	}
+	
+	
+	#$ret.="$_";
+    }
+    return $ret;
+}
 
 #Count the instructions within a string.
 sub inscount{
@@ -607,7 +622,7 @@ sub inscount{
     return $i;
 }
 
-#TODO finish this
+#TODO finish the instime function.
 sub instime{
     my $ins=shift;
     

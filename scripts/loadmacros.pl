@@ -74,6 +74,9 @@ loadmacro(".callgraph.xview","system",
 loadmacro(".callgraph.ps","system",
 	  "Postscript callgraph, sized for US Letter.",
 	  "msp430static .callgraph | $graphviz -Tps -x -Gsize=\"7,10\" -Grankdir=\"LR\"");
+loadmacro(".callgraph.pdf","system",
+	  "PDF callgraph, sized for US Letter.",
+	  "msp430static .callgraph | $graphviz -Tpdf -x -Gsize=\"7,10\" -Grankdir=\"LR\"");
 loadmacro(".callgraph.lp","system",
 	  "Print callgraph for US Letter.",
 	  "msp430static .callgraph.ps | lp");

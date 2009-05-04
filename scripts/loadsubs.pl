@@ -1,6 +1,9 @@
 #msp430static script
 #call as "m4s /loadsubs"
 
+loadsub('asm2bits',1,'perl',
+	'Dumps a line of code as binary bits, for rom analysis.',
+	'sub { return insbytes(shift); }');
 
 loadsub('enhex', 1, 'perl',
 	'Converts a numeral to a hex string.',
