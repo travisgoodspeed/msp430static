@@ -350,6 +350,8 @@ sub dbinit{
     
     regenfuncs();
     
+    print "Initializing the database.";
+    
     $dbh->do("CREATE INDEX IF NOT EXISTS adfuncs ON funcs(address,end);")
 	if !$opts{"noindex"};
     
@@ -1184,6 +1186,7 @@ sub resetdb(){
 
 sub readin{
     my $working=1;
+    my $row=1;
     
     print "Reading code.\n";
 
@@ -1197,8 +1200,6 @@ sub readin{
     
     #read each line and load it.
     while(<STDIN>){
-	
-	
 	if($_=~/(stab)/ && $working){
 	    $working=0;
 	    print "#Stopping work until out of stab section.\n" if $opts{"debug"};
@@ -1241,7 +1242,15 @@ sub readin{
 	}else{
 	    print "WTF: $_" if($opts{"wtf"});
 	}
-	print "$_" if $opts{"printall"};
+	
+	#debugging
+	$row++;
+	if($opts{"printall"}){
+	    print "$_"; 
+	}elsif($opts{"printsome"} && $_ =~ /00:/){
+	    print "$_"
+	}
+	
     }
 }
 
@@ -1342,8 +1351,11 @@ sub inlib{
 
 
 sub dbanalyze{
+    print "Analyzing calls.\n";
     dbnetanalyze();  #Get calls.
+    print "Analyzing functions.\n";
     regenfuncs();    #Get functions.
+    print "Fixing call names.\n";
     dbnetanalyze();  #Fix call names.
 }
 
